@@ -7197,7 +7197,46 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
             return super.getIgnoreOrientationRequest();
         }
         // Large screen (sw >= 600dp) ignores orientation request by default.
+        // MikuUI: persist.sys.respect_app_orientation=1 respects every request instead.
+        if (getMikuOrientationPolicy() == MIKU_ORIENTATION_RESPECT_ALL) {
+            return false;
+        }
         return isLargeScreen() && !mWmService.isIgnoreOrientationRequestDisabled();
+    }
+
+    /** MikuUI: respect every fixed-orientation request, like a phone. */
+    static final int MIKU_ORIENTATION_RESPECT_ALL = 0;
+    /** MikuUI: AOSP large-screen behaviour, ignore fixed-orientation requests. */
+    static final int MIKU_ORIENTATION_IGNORE = 1;
+    /**
+     * MikuUI default: ignore like AOSP, but still follow requests for landscape. Portrait-only
+     * apps then stay usable in landscape (and in parallel view), while a video going fullscreen
+     * still turns a portrait-held tablet sideways.
+     */
+    static final int MIKU_ORIENTATION_LANDSCAPE_ONLY = 2;
+
+    /** MikuUI: policy from persist.sys.respect_app_orientation ("1", "0", default landscape). */
+    static int getMikuOrientationPolicy() {
+        switch (android.os.SystemProperties.get("persist.sys.respect_app_orientation", "")) {
+            case "1":
+            case "true":
+                return MIKU_ORIENTATION_RESPECT_ALL;
+            case "0":
+            case "false":
+                return MIKU_ORIENTATION_IGNORE;
+            default:
+                return MIKU_ORIENTATION_LANDSCAPE_ONLY;
+        }
+    }
+
+    /**
+     * MikuUI: whether a fixed-orientation request that the display would otherwise ignore
+     * should be followed anyway (a landscape request under the landscape-only policy).
+     */
+    boolean shouldFollowMikuOrientationRequest(@ActivityInfo.ScreenOrientation int orientation) {
+        return ActivityInfo.isFixedOrientationLandscape(orientation)
+                && getMikuOrientationPolicy() == MIKU_ORIENTATION_LANDSCAPE_ONLY
+                && getIgnoreOrientationRequest();
     }
 
     @Override

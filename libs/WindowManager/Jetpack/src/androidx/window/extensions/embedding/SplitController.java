@@ -143,6 +143,15 @@ public class SplitController implements JetpackTaskFragmentOrganizer.TaskFragmen
     @GuardedBy("mLock")
     private final List<EmbeddingRule> mSplitRules = new ArrayList<>();
 
+    // MikuUI: rules set by the app through setEmbeddingRules().
+    @GuardedBy("mLock")
+    private final List<EmbeddingRule> mAppSplitRules = new ArrayList<>();
+
+    // MikuUI: default rules provided by the system ("parallel view"). They only apply while
+    // the app has not set any rules of its own, so apps with native support keep theirs.
+    @GuardedBy("mLock")
+    private final List<EmbeddingRule> mSystemSplitRules = new ArrayList<>();
+
     /**
      * Stores the token of the associated Activity that maps to the
      * {@link OverlayContainerRestoreParams} of the most recent created overlay container.
@@ -291,8 +300,9 @@ public class SplitController implements JetpackTaskFragmentOrganizer.TaskFragmen
     public void setEmbeddingRules(@NonNull Set<EmbeddingRule> rules) {
         synchronized (mLock) {
             Log.i(TAG, "Setting embedding rules. Size: " + rules.size());
-            mSplitRules.clear();
-            mSplitRules.addAll(rules);
+            mAppSplitRules.clear();
+            mAppSplitRules.addAll(rules);
+            updateEffectiveSplitRulesLocked();
 
             if (!mPresenter.isWaitingToRebuildTaskContainers()) {
                 return;
@@ -306,7 +316,7 @@ public class SplitController implements JetpackTaskFragmentOrganizer.TaskFragmen
                 final TransactionRecord transactionRecord =
                         mTransactionManager.startNewTransaction();
                 final WindowContainerTransaction wct = transactionRecord.getTransaction();
-                if (mPresenter.rebuildTaskContainers(wct, rules)) {
+                if (mPresenter.rebuildTaskContainers(wct, new ArraySet<>(mSplitRules))) {
                     transactionRecord.apply(false /* shouldApplyIndependently */);
                     updateCallbackIfNecessary();
                 } else {
@@ -450,6 +460,109 @@ public class SplitController implements JetpackTaskFragmentOrganizer.TaskFragmen
     @VisibleForTesting
     List<EmbeddingRule> getSplitRules() {
         return mSplitRules;
+    }
+
+    /**
+     * MikuUI: sets the system default embedding rules. They are used only while the app has
+     * not set any rules through {@link #setEmbeddingRules(Set)}.
+     */
+    void setSystemEmbeddingRules(@NonNull Set<EmbeddingRule> rules) {
+        synchronized (mLock) {
+            Log.i(TAG, "Setting system embedding rules. Size: " + rules.size());
+            mSystemSplitRules.clear();
+            mSystemSplitRules.addAll(rules);
+            updateEffectiveSplitRulesLocked();
+        }
+    }
+
+    @GuardedBy("mLock")
+    private void updateEffectiveSplitRulesLocked() {
+        mSplitRules.clear();
+        // MikuUI: an app that sets up embedding itself (non-empty rules, e.g. Coolapk) keeps its
+        // own layout. The system rules only fill in for apps without any; Bilibili's own
+        // library sets an empty rule set, so it gets the system rules.
+        mSplitRules.addAll(mAppSplitRules.isEmpty() ? mSystemSplitRules : mAppSplitRules);
+    }
+
+    /**
+     * MikuUI: default split attributes of parallel-view splits that are currently expanded for
+     * fullscreen, so they can be restored.
+     */
+    @GuardedBy("mLock")
+    private final ArrayMap<SplitContainer, SplitAttributes> mMikuExpandedSplits =
+            new ArrayMap<>();
+
+    /**
+     * MikuUI: the parallel-view split that the activity is in, or null. Splits created from the
+     * app's own rules and tasks that are themselves in multi-window (split screen, freeform)
+     * do not count.
+     */
+    @GuardedBy("mLock")
+    @Nullable
+    private SplitContainer getMikuParallelViewSplitLocked(@NonNull Activity activity) {
+        final TaskFragmentContainer container = getContainerWithActivity(activity);
+        if (container == null) {
+            return null;
+        }
+        final SplitContainer splitContainer = getActiveSplitForContainer(container);
+        if (splitContainer == null
+                || !MikuParallelView.RULE_TAG.equals(splitContainer.getSplitRule().getTag())
+                || container.getTaskContainer().isInMultiWindow()) {
+            return null;
+        }
+        return splitContainer;
+    }
+
+    /** MikuUI: whether the activity is in a parallel-view split. */
+    boolean isInMikuParallelViewSplit(@NonNull Activity activity) {
+        synchronized (mLock) {
+            return getMikuParallelViewSplitLocked(activity) != null;
+        }
+    }
+
+    /**
+     * MikuUI: expands the parallel-view split the activity is in so both panes cover the whole
+     * task (the secondary pane stays on top), or restores its previous attributes. The split
+     * itself is kept, so restoring brings back exactly the previous layout.
+     *
+     * @return whether anything changed.
+     */
+    boolean setMikuParallelViewExpanded(@NonNull Activity activity, boolean expanded) {
+        synchronized (mLock) {
+            // Forget splits that ended while expanded.
+            for (int i = mMikuExpandedSplits.size() - 1; i >= 0; i--) {
+                final SplitContainer split = mMikuExpandedSplits.keyAt(i);
+                if (split.getPrimaryContainer().isFinished()
+                        || split.getSecondaryContainer().isFinished()) {
+                    mMikuExpandedSplits.removeAt(i);
+                }
+            }
+            final SplitContainer splitContainer = getMikuParallelViewSplitLocked(activity);
+            if (splitContainer == null
+                    || expanded == mMikuExpandedSplits.containsKey(splitContainer)) {
+                return false;
+            }
+            if (expanded) {
+                mMikuExpandedSplits.put(splitContainer,
+                        splitContainer.getDefaultSplitAttributes());
+                splitContainer.updateDefaultSplitAttributes(new SplitAttributes.Builder()
+                        .setSplitType(new SplitAttributes.SplitType.ExpandContainersSplitType())
+                        .build());
+            } else {
+                splitContainer.updateDefaultSplitAttributes(
+                        mMikuExpandedSplits.remove(splitContainer));
+            }
+            // Recompute from the (new) defaults, so a restore in portrait stays expanded as the
+            // rule's parent-size check demands.
+            final TransactionRecord transactionRecord = mTransactionManager.startNewTransaction();
+            if (updateSplitContainerIfNeeded(splitContainer,
+                    transactionRecord.getTransaction(), null /* splitAttributes */)) {
+                transactionRecord.apply(false /* shouldApplyIndependently */);
+            } else {
+                transactionRecord.abort();
+            }
+            return true;
+        }
     }
 
     /**

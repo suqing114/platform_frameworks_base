@@ -257,6 +257,11 @@ public class DisplayArea<T extends WindowContainer> extends WindowContainer<T> {
                 // The behavior of non-fixed orientation is the same as ignoring.
                 return true;
             }
+            // MikuUI: follow landscape requests (videos going fullscreen), see DisplayContent.
+            if (mDisplayContent != null
+                    && mDisplayContent.shouldFollowMikuOrientationRequest(orientation)) {
+                return false;
+            }
             return !shouldRespectOrientationRequestDueToPerAppOverride();
         }
         return false;

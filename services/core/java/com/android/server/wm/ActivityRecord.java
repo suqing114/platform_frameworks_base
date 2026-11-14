@@ -3175,6 +3175,9 @@ public final class ActivityRecord extends WindowToken {
         // Exclude "locked" because it is not explicit portrait or landscape.
         return orientation != ActivityInfo.SCREEN_ORIENTATION_LOCKED
                 && ActivityInfo.isFixedOrientation(orientation)
+                // MikuUI: landscape requests are followed even for target sdk 36 apps.
+                && !(mDisplayContent != null
+                        && mDisplayContent.shouldFollowMikuOrientationRequest(orientation))
                 && isUniversalResizeable();
     }
 

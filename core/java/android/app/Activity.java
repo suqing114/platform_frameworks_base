@@ -3129,7 +3129,10 @@ public class Activity extends ContextThemeWrapper
      * @return True if the activity is in multi-window mode.
      */
     public boolean isInMultiWindowMode() {
-        return mIsInMultiWindowMode;
+        // MikuUI parallel view: apps split by the system rather than by themselves keep seeing
+        // a single window, see ParallelViewHooks.
+        return mIsInMultiWindowMode
+                && !com.android.internal.miku.ParallelViewHooks.shouldReportSingleWindow(this);
     }
 
     /**
@@ -7889,6 +7892,10 @@ public class Activity extends ContextThemeWrapper
             return;
         }
         if (mParent == null) {
+            // MikuUI parallel view: expand the split for a landscape (fullscreen) request and
+            // restore it afterwards. Done before the request reaches the system.
+            com.android.internal.miku.ParallelViewHooks.onRequestedOrientationChanged(this,
+                    requestedOrientation);
             ActivityClient.getInstance().setRequestedOrientation(mToken, requestedOrientation);
         } else {
             mParent.setRequestedOrientation(requestedOrientation);
@@ -9677,11 +9684,13 @@ public class Activity extends ContextThemeWrapper
                 "dispatchMultiWindowModeChanged " + this + ": " + isInMultiWindowMode
                         + " " + newConfig);
         mIsInMultiWindowMode = isInMultiWindowMode;
-        mFragments.dispatchMultiWindowModeChanged(isInMultiWindowMode, newConfig);
+        // MikuUI parallel view: tell the app what isInMultiWindowMode() reports.
+        final boolean reportedMultiWindowMode = isInMultiWindowMode();
+        mFragments.dispatchMultiWindowModeChanged(reportedMultiWindowMode, newConfig);
         if (mWindow != null) {
             mWindow.onMultiWindowModeChanged();
         }
-        onMultiWindowModeChanged(isInMultiWindowMode, newConfig);
+        onMultiWindowModeChanged(reportedMultiWindowMode, newConfig);
     }
 
     final void dispatchPictureInPictureModeChanged(boolean isInPictureInPictureMode,

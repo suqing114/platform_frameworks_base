@@ -7970,6 +7970,44 @@ public final class ActivityThread extends ClientTransactionHandler
         return insInfo.nativeLibraryDir;
     }
 
+    /**
+     * MikuUI: installs the system default Activity Embedding rule ("parallel view") in every
+     * eligible app unless the user switched it off. See
+     * {@link com.android.internal.miku.ParallelViewConfig}. The implementation lives in the
+     * androidx.window.extensions shared library, which is only on the class path of apps that
+     * declare it, hence the reflective call; other apps are skipped silently.
+     */
+    private void maybeInstallMikuParallelView(Application app, AppBindData data) {
+        if (app == null || Process.isIsolated()
+                || !com.android.internal.miku.ParallelViewConfig.isCandidate(data.appInfo)) {
+            return;
+        }
+        final String pkg = data.appInfo.packageName;
+        // Main process only: the split applies to the task's activities.
+        if (!pkg.equals(data.processName)) {
+            return;
+        }
+        // Cheap class path check first, so apps without the library cost no settings lookup.
+        final Class<?> cls;
+        try {
+            cls = Class.forName("androidx.window.extensions.embedding.MikuParallelView",
+                    false /* initialize */, app.getClassLoader());
+        } catch (ClassNotFoundException e) {
+            return; // The app did not declare androidx.window.extensions.
+        }
+        try {
+            final ContentResolver cr = app.getContentResolver();
+            if (!com.android.internal.miku.ParallelViewConfig.isGloballyEnabled(cr)
+                    || !com.android.internal.miku.ParallelViewConfig.isAppEnabled(cr, pkg)) {
+                return;
+            }
+            cls.getMethod("install", float.class).invoke(null,
+                    com.android.internal.miku.ParallelViewConfig.getRatio(cr));
+        } catch (Throwable t) {
+            Slog.w(TAG, "MikuParallelView: install failed in " + pkg, t);
+        }
+    }
+
     @UnsupportedAppUsage
     @RavenwoodThrow(comment = "See ActivityThread_ravenwood for initialization on Ravenwood")
     private void handleBindApplication(AppBindData data) {
@@ -8333,6 +8371,7 @@ public final class ActivityThread extends ClientTransactionHandler
                       "Unable to create application " + app.getClass().getName(), e);
                 }
             }
+            maybeInstallMikuParallelView(app, data);
         } finally {
             // If the app targets < O-MR1, or doesn't change the thread policy
             // during startup, clobber the policy to maintain behavior of b/36951662
