@@ -18,6 +18,7 @@ package com.android.systemui.shade.ui
 
 import android.content.Context
 import com.android.internal.graphics.ColorUtils
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.res.R
 
 object ShadeColors {
@@ -56,6 +57,7 @@ object ShadeColors {
 
     @JvmStatic
     fun shadePanelScrimBehind(context: Context): Int {
+        if (MikuGlass.enabled) return MikuGlass.shadeScrimColor(context)
         return context.resources.getColor(
             com.android.internal.R.color.shade_panel_scrim,
             context.theme,
@@ -72,10 +74,14 @@ object ShadeColors {
         composited: Boolean,
     ): Int {
         val surfaceEffect0Color =
-            context.resources.getColor(
-                com.android.internal.R.color.customColorSurfaceEffect0,
-                context.theme,
-            )
+            if (MikuGlass.enabled && blurSupported) {
+                MikuGlass.notificationPanelColor(context)
+            } else {
+                context.resources.getColor(
+                    com.android.internal.R.color.customColorSurfaceEffect0,
+                    context.theme,
+                )
+            }
         if (!composited) {
             // SplitShade (avoid adding the shade panel with scrim)
             return surfaceEffect0Color
@@ -87,6 +93,7 @@ object ShadeColors {
 
     @JvmStatic
     private fun shadePanelStandard(context: Context): Int {
+        if (MikuGlass.enabled) return MikuGlass.shadePanelColor(context)
         val layerAbove =
             context.resources.getColor(com.android.internal.R.color.shade_panel_fg, context.theme)
         val layerBelow =
@@ -101,6 +108,7 @@ object ShadeColors {
 
     @JvmStatic
     private fun notificationScrimStandard(context: Context): Int {
+        if (MikuGlass.enabled) return MikuGlass.notificationPanelColor(context)
         return ColorUtils.setAlphaComponent(
             context.getColor(R.color.notification_scrim_base),
             (0.5f * 255).toInt(),

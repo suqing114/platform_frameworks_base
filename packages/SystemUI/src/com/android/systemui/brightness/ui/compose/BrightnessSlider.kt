@@ -93,6 +93,9 @@ import com.android.systemui.brightness.ui.compose.InternalDimensions.ThumbTrackG
 import com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel
 import com.android.systemui.brightness.ui.viewmodel.Drag
 import com.android.systemui.common.shared.colors.SystemUISliderColors
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.android.systemui.miku.glass.mikuGlassRim
+import com.android.systemui.miku.glass.mikuGlassSliderColors
 import com.android.systemui.common.shared.model.Icon
 import com.android.systemui.compose.modifiers.sysuiResTag
 import com.android.systemui.haptics.slider.SeekableSliderTrackerConfig
@@ -143,7 +146,7 @@ fun BrightnessSlider(
                 SeekableSliderTrackerConfig(),
             )
         }
-    val colors = SystemUISliderColors.Defaults
+    val colors = mikuGlassSliderColors(SystemUISliderColors.Defaults)
 
     // The value state is recreated every time gammaValue changes, so we recreate this derivedState
     // We have to use value as that's the value that changes when the user is dragging (gammaValue
@@ -277,6 +280,7 @@ fun BrightnessSlider(
                                 BrightnessSliderMotionTestKeys.InactiveIconAlpha
                         }
                         .height(dimensions.trackHeight)
+                        .mikuGlassRim(RoundedCornerShape(SliderTrackRoundedCorner))
                         .drawWithContent {
                             drawContent()
 

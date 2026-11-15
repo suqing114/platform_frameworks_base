@@ -78,6 +78,10 @@ import com.android.compose.theme.LocalAndroidColorScheme
 import com.android.mechanics.compose.modifier.verticalFadeContentReveal
 import com.android.mechanics.compose.modifier.verticalTactileSurfaceReveal
 import com.android.mechanics.effects.VerticalTactileSurfaceRevealEffect
+import com.android.systemui.miku.glass.MikuGlass
+import com.android.systemui.miku.glass.mikuGlassFill
+import com.android.systemui.miku.glass.mikuGlassIsNight
+import com.android.systemui.miku.glass.mikuGlassRim
 import com.android.systemui.Flags
 import com.android.systemui.animation.Expandable
 import com.android.systemui.animation.TransitionAnimator.Companion.dynamicTargetResolutionEnabled
@@ -369,6 +373,7 @@ private fun TileExpandable(
         modifier =
             modifier
                 .clip(shape)
+                .mikuGlassRim(shape)
                 .motionTestValues { squishiness() exportAs TileMotionTestKeys.Squishness }
                 .verticalSquish(squishiness),
         useModifierBasedImplementation = true,
@@ -523,11 +528,23 @@ object TileMotionTestKeys {
 }
 
 private object TileDefaults {
+    /** Label color on a lit (white) glass tile. */
+    private val GlassActiveLabel = Color(0xFF1C1C1E)
+
     /** An active tile uses the active color as background */
     @Composable
     @ReadOnlyComposable
     fun activeTileColors(): TileColors =
-        TileColors(
+        if (MikuGlass.enabled && mikuGlassIsNight()) {
+            // MikuUI glass: solid white "lit" tile with an accent icon.
+            TileColors(
+                background = Color.White,
+                iconBackground = Color.White,
+                label = GlassActiveLabel,
+                secondaryLabel = GlassActiveLabel.copy(alpha = 0.7f),
+                icon = MaterialTheme.colorScheme.primary,
+            )
+        } else TileColors(
             background = MaterialTheme.colorScheme.primary,
             iconBackground = MaterialTheme.colorScheme.primary,
             label = MaterialTheme.colorScheme.onPrimary,
@@ -539,7 +556,15 @@ private object TileDefaults {
     @Composable
     @ReadOnlyComposable
     fun activeDualTargetTileColors(): TileColors =
-        TileColors(
+        if (MikuGlass.enabled && mikuGlassIsNight()) {
+            TileColors(
+                background = mikuGlassFill(),
+                iconBackground = Color.White,
+                label = MaterialTheme.colorScheme.onSurface,
+                secondaryLabel = MaterialTheme.colorScheme.onSurface,
+                icon = MaterialTheme.colorScheme.primary,
+            )
+        } else TileColors(
             background = LocalAndroidColorScheme.current.surfaceEffect1,
             iconBackground = MaterialTheme.colorScheme.primary,
             label = MaterialTheme.colorScheme.onSurface,
@@ -551,8 +576,12 @@ private object TileDefaults {
     @ReadOnlyComposable
     fun inactiveDualTargetTileColors(): TileColors =
         TileColors(
-            background = LocalAndroidColorScheme.current.surfaceEffect1,
-            iconBackground = LocalAndroidColorScheme.current.surfaceEffect2,
+            background =
+                if (MikuGlass.enabled) mikuGlassFill()
+                else LocalAndroidColorScheme.current.surfaceEffect1,
+            iconBackground =
+                if (MikuGlass.enabled) mikuGlassFill()
+                else LocalAndroidColorScheme.current.surfaceEffect2,
             label = MaterialTheme.colorScheme.onSurface,
             secondaryLabel = MaterialTheme.colorScheme.onSurface,
             icon = MaterialTheme.colorScheme.onSurface,
@@ -562,7 +591,9 @@ private object TileDefaults {
     @ReadOnlyComposable
     fun inactiveTileColors(): TileColors =
         TileColors(
-            background = LocalAndroidColorScheme.current.surfaceEffect1,
+            background =
+                if (MikuGlass.enabled) mikuGlassFill()
+                else LocalAndroidColorScheme.current.surfaceEffect1,
             iconBackground = Color.Transparent,
             label = MaterialTheme.colorScheme.onSurface,
             secondaryLabel = MaterialTheme.colorScheme.onSurface,
@@ -572,7 +603,9 @@ private object TileDefaults {
     @Composable
     @ReadOnlyComposable
     fun unavailableTileColors(): TileColors {
-        val surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = .18f)
+        val surfaceColor =
+            if (MikuGlass.enabled) mikuGlassFill().copy(alpha = mikuGlassFill().alpha * 0.5f)
+            else MaterialTheme.colorScheme.surface.copy(alpha = .18f)
         val onSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .38f)
         return TileColors(
             background = surfaceColor,

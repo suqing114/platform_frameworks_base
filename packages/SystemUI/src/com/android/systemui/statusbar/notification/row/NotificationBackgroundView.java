@@ -42,6 +42,7 @@ import com.android.internal.graphics.drawable.BackgroundBlurDrawable;
 import com.android.internal.util.ContrastColorUtil;
 import com.android.systemui.Dumpable;
 import com.android.systemui.common.shared.colors.SurfaceEffectColors;
+import com.android.systemui.miku.glass.MikuGlass;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
 import com.android.systemui.util.Assert;
@@ -130,8 +131,12 @@ public class NotificationBackgroundView extends View implements Dumpable,
             if (!NotificationAddXOnHoverToDismiss.isEnabled()) {
                 if (mBackgroundBlurDrawable != null) {
                     draw(canvas, mBackgroundBlurDrawable);
+                    drawMikuGlassRim(canvas, mBackgroundBlurDrawable.getBounds());
                 } else {
                     draw(canvas, mBackground);
+                    if (mBackground != null) {
+                        drawMikuGlassRim(canvas, mBackground.getBounds());
+                    }
                 }
                 canvas.restore();
                 return;
@@ -149,13 +154,32 @@ public class NotificationBackgroundView extends View implements Dumpable,
             if (mBackgroundBlurDrawable != null) {
                 mBackgroundBlurDrawable.setBounds(backgroundBounds);
                 mBackgroundBlurDrawable.draw(canvas);
+                drawMikuGlassRim(canvas, backgroundBounds);
             } else if (mBackground != null) {
                 mBackground.setBounds(backgroundBounds);
                 mBackground.draw(canvas);
+                drawMikuGlassRim(canvas, backgroundBounds);
             }
 
             canvas.restore();
         }
+    }
+
+    /**
+     * MikuUI glass: a card is "untinted" when it uses the normal color, or 0 which
+     * ActivatableNotificationView passes for normal cards (notificationBackgroundTintOptimization).
+     */
+    private boolean isMikuGlassUntinted(int tintColor) {
+        return tintColor == 0 || tintColor == mNormalColor;
+    }
+
+    /** MikuUI glass: thin top-lit rim around an untinted (glass) notification card. */
+    private void drawMikuGlassRim(Canvas canvas, @Nullable Rect bounds) {
+        if (bounds == null || !MikuGlass.enabled || !isMikuGlassUntinted(mTintColor)) {
+            return;
+        }
+        MikuGlass.drawRim(canvas, bounds.left, bounds.top, bounds.right, bounds.bottom,
+                mCornerRadii, getResources().getDisplayMetrics().density);
     }
 
     private Path calculateDismissButtonCutoutPath(Rect backgroundBounds) {
@@ -392,14 +416,18 @@ public class NotificationBackgroundView extends View implements Dumpable,
 
     public void setTint(int tintColor) {
         Drawable baseLayer = getBaseBackgroundLayer();
+        // MikuUI glass: an untinted card is painted with the translucent glass fill. mTintColor
+        // keeps the logical color, so contrast / stateful-color logic is unchanged.
+        final int drawColor = (MikuGlass.enabled && isMikuGlassUntinted(tintColor))
+                ? MikuGlass.notificationCardColor(getContext()) : tintColor;
         if (notificationRowTransparency()) {
-            ((GradientDrawable) baseLayer.mutate()).setColor(tintColor);
+            ((GradientDrawable) baseLayer.mutate()).setColor(drawColor);
         } else {
             baseLayer.mutate().setTintMode(PorterDuff.Mode.SRC_ATOP);
-            baseLayer.setTint(tintColor);
+            baseLayer.setTint(drawColor);
         }
         if (mBackgroundBlurDrawable != null) {
-            mBackgroundBlurDrawable.setColor(tintColor);
+            mBackgroundBlurDrawable.setColor(drawColor);
         }
         mTintColor = tintColor;
         setStatefulColors();
