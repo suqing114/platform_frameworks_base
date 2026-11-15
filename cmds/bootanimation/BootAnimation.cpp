@@ -611,7 +611,6 @@ ui::Rotation BootAnimation::parseOrientationProperty() {
     if (syspropValue == "") {
         syspropValue = android::base::GetProperty("ro.bootanim.set_orientation_logical_0", "");
     }
-
     if (syspropValue == "ORIENTATION_90") {
         return ui::ROTATION_90;
     } else if (syspropValue == "ORIENTATION_180") {
@@ -1949,10 +1948,26 @@ bool BootAnimation::movieMba() {
         for (const auto& display : mDisplays) {
             eglMakeCurrent(mEgl, display.eglSurface, display.eglSurface, mEglContext);
             MbaCover cover;
-            cover.scale = fmaxf(static_cast<float>(display.width) / scene.width,
-                                static_cast<float>(display.height) / scene.height);
-            cover.animX = (display.width - scene.width * cover.scale) / 2.f;
-            cover.animY = (display.height - scene.height * cover.scale) / 2.f;
+            // Width of the canvas the marquee fills, and how far the centred pieces (foreground,
+            // logo) move to stay centred on it.
+            float canvasW = static_cast<float>(scene.width);
+            float centreShift = 0.f;
+            if (display.width > display.height && scene.width < scene.height) {
+                // MikuUI: a portrait scene on a landscape display. Covering would keep only a
+                // thin horizontal band of it, cutting off the foreground and the logo. Fit the
+                // height instead and widen the canvas to the display: the marquee rows run across
+                // the whole width and the foreground and logo stay centred.
+                cover.scale = static_cast<float>(display.height) / scene.height;
+                canvasW = static_cast<float>(display.width) / cover.scale;
+                centreShift = (canvasW - scene.width) / 2.f;
+                cover.animX = 0.f;
+                cover.animY = 0.f;
+            } else {
+                cover.scale = fmaxf(static_cast<float>(display.width) / scene.width,
+                                    static_cast<float>(display.height) / scene.height);
+                cover.animX = (display.width - scene.width * cover.scale) / 2.f;
+                cover.animY = (display.height - scene.height * cover.scale) / 2.f;
+            }
             projectSceneToWindow(display);
             handleViewport(frameDuration, display);
             glClearColor(scene.bg[0], scene.bg[1], scene.bg[2], 1.f);
@@ -1968,15 +1983,15 @@ bool BootAnimation::movieMba() {
                     }
                     const bool goingLeft = (i % 2) == 0;
                     const float start = goingLeft ? -s : s - period;
-                    for (float x = start; x < scene.width; x += period) {
+                    for (float x = start; x < canvasW; x += period) {
                         drawSprite(marquee, x, y, marquee.w, marquee.h, marqueeA, display, cover);
                     }
                 }
                 if (scene.fgOn && scene.foreground.name) {
                     const float dw = scene.fgOrigW * scene.fgScale;
                     const float dh = scene.fgOrigH * scene.fgScale;
-                    drawSprite(scene.foreground, scene.fgX - dw / 2.f, scene.fgY - dh / 2.f,
-                               dw, dh, marqueeA, display, cover);
+                    drawSprite(scene.foreground, centreShift + scene.fgX - dw / 2.f,
+                               scene.fgY - dh / 2.f, dw, dh, marqueeA, display, cover);
                 }
             }
             if (logoA > 0.001f && logo->name) {
@@ -1984,7 +1999,7 @@ bool BootAnimation::movieMba() {
                 const float ls = fminf(1.f, maxW / fmaxf(1.f, static_cast<float>(logo->w)));
                 const float dw = logo->w * ls;
                 const float dh = logo->h * ls;
-                drawSprite(*logo, scene.outroX - dw / 2.f, scene.outroY - dh / 2.f,
+                drawSprite(*logo, centreShift + scene.outroX - dw / 2.f, scene.outroY - dh / 2.f,
                            dw, dh, logoA, display, cover);
             }
             eglSwapBuffers(mEgl, display.eglSurface);
