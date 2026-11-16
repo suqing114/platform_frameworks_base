@@ -35,7 +35,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.internal.graphics.drawable.BackgroundBlurDrawable
 import com.android.keyguard.logging.KeyguardQuickAffordancesLogger
-import com.android.systemui.Flags.enableLockscreenBlur
+import com.android.systemui.Flags.enableLockscreenBlur as flagEnableLockscreenBlur
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.animation.Expandable
 import com.android.systemui.animation.view.LaunchableImageView
 import com.android.systemui.common.shared.model.Icon
@@ -171,12 +172,22 @@ constructor(
             val blurDrawable =
                 (view.background as LayerDrawable).getDrawable(0) as BackgroundBlurDrawable
             blurDrawable.setVisible(
-                isBlurSupported && viewModel.isSelected && !viewModel.isActivated,
+                isBlurSupported &&
+                    (viewModel.isSelected || MikuGlass.lockscreenBlur) &&
+                    !viewModel.isActivated,
                 false,
             )
             (view.background as LayerDrawable)
                 .getDrawable(1)
                 .setTintList(getBackgroundTintList(viewModel, view, isBlurSupported))
+            if (MikuGlass.lockscreenBlur && isBlurSupported && !viewModel.isActivated) {
+                // MikuUI glass: translucent fill + rim over the per-button blur.
+                MikuGlass.applyGlass(
+                    (view.background as LayerDrawable).getDrawable(1),
+                    MikuGlass.fillColor(view.context),
+                    view.context,
+                )
+            }
         } else {
             view.backgroundTintList = getBackgroundTintList(viewModel, view, isBlurSupported)
         }
@@ -311,6 +322,10 @@ constructor(
             }
     }
 
+    /** AOSP lockscreen blur flag, or MikuUI glass (which reuses the same blur path). */
+    private fun enableLockscreenBlur(): Boolean =
+        flagEnableLockscreenBlur() || MikuGlass.lockscreenBlur
+
     private fun getBackgroundTintList(
         viewModel: KeyguardQuickAffordanceViewModel,
         view: View,
@@ -321,6 +336,8 @@ constructor(
                 view.context.getColor(
                     if (viewModel.isActivated) {
                         com.android.internal.R.color.materialColorPrimaryFixed
+                    } else if (MikuGlass.lockscreenBlur && isBlurSupported) {
+                        return ColorStateList.valueOf(MikuGlass.fillColor(view.context))
                     } else if (enableLockscreenBlur() && isBlurSupported) {
                         com.android.internal.R.color.customColorSurfaceEffect1
                     } else {

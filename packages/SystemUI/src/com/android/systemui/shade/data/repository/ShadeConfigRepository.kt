@@ -16,6 +16,7 @@
 
 package com.android.systemui.shade.data.repository
 
+import android.content.res.Configuration
 import android.content.res.Resources
 import android.provider.Settings
 import androidx.annotation.BoolRes
@@ -102,6 +103,21 @@ constructor(
      * Whether the shade layout should be Split Shade (`true`) or Single Shade (`false`). Only
      * applicable when Dual Shade is disabled.
      */
+    /**
+     * Miku: whether the display is currently in portrait. Dual Shade is restricted to portrait so
+     * that landscape keeps the previous single-shade wide layout.
+     */
+    val isPortraitShade: Flow<Boolean> =
+        configurationRepository.onConfigurationChange
+            .emitOnStart()
+            .map { resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
+            .distinctUntilChanged()
+            .flowOn(backgroundDispatcher)
+
+    /** @see isPortraitShade */
+    fun isPortraitShade(): Boolean =
+        resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+
     val legacyUseSplitShade: Flow<Boolean> =
         configurationRepository.onConfigurationChange
             .emitOnStart()

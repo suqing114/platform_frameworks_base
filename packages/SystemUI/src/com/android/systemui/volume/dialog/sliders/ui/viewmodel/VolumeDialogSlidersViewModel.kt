@@ -16,6 +16,7 @@
 
 package com.android.systemui.volume.dialog.sliders.ui.viewmodel
 
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.shared.system.BlurUtils.isVolumeAndPowerBlurEnabled
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialog
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
@@ -46,7 +47,8 @@ constructor(
     val isVolumeDialogVertical = !expandedAudioTileDetailsFeatureInteractor.isEnabled()
 
     // Show blur if the flag is enabled and the volume dialog is vertical
-    val showBlur = isVolumeAndPowerBlurEnabled() && isVolumeDialogVertical
+    val showBlur =
+        (isVolumeAndPowerBlurEnabled() || MikuGlass.enabled) && isVolumeDialogVertical
 
     val sliders: Flow<VolumeDialogSliderUiModel> =
         slidersInteractor.sliders

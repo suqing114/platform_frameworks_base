@@ -71,6 +71,9 @@ import com.android.compose.animation.scene.ElementKey
 import com.android.compose.theme.LocalAndroidColorScheme
 import com.android.compose.ui.graphics.painter.rememberDrawablePainter
 import com.android.keyguard.logging.KeyguardQuickAffordancesLogger
+import com.android.systemui.miku.glass.MikuGlass
+import com.android.systemui.miku.glass.mikuGlassFill
+import com.android.systemui.miku.glass.mikuGlassRim
 import com.android.systemui.Flags.enableLockscreenBlur
 import com.android.systemui.animation.Expandable
 import com.android.systemui.common.shared.model.ContentDescription.Companion.loadContentDescription
@@ -289,7 +292,7 @@ constructor(
         viewModel: KeyguardQuickAffordanceViewModel,
         alpha: Float,
     ): Modifier {
-        if (enableLockscreenBlur()) {
+        if (enableLockscreenBlur() || MikuGlass.lockscreenBlur) {
             val viewRootImpl = LocalView.current.viewRootImpl
             val drawable = remember {
                 viewRootImpl.createBackgroundBlurDrawable().apply { setBlurRadius(0) }
@@ -330,6 +333,11 @@ constructor(
         if (!viewModel.isSelected) {
             val isBlurSupported by
                 windowRootViewBlurInteractor.isBlurCurrentlySupported.collectAsStateWithLifecycle()
+            if (MikuGlass.lockscreenBlur && isBlurSupported && !viewModel.isActivated) {
+                // MikuUI glass: translucent fill + rim over the per-button blur.
+                return this.background(color = mikuGlassFill(), shape = CircleShape)
+                    .mikuGlassRim(CircleShape)
+            }
             return this.background(
                 color =
                     if (viewModel.isActivated) {

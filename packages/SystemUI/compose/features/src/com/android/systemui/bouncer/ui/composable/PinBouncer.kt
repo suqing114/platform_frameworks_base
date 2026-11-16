@@ -54,6 +54,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -79,6 +81,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.android.compose.animation.Easings
 import com.android.compose.grid.VerticalGrid
 import com.android.compose.modifiers.thenIf
+import com.android.systemui.miku.glass.MikuGlass
+import com.android.systemui.miku.glass.mikuGlassRimBrush
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants
 import com.android.systemui.bouncer.ui.BouncerColors.pinActionBg
 import com.android.systemui.bouncer.ui.BouncerColors.pinDigitBg
@@ -401,6 +405,21 @@ private fun PinPadButton(
                         color = containerColor,
                         cornerRadius = CornerRadius(cornerRadiusFraction * size.height),
                     )
+                    if (MikuGlass.enabled && MikuGlass.rimWidthDp > 0f) {
+                        // MikuUI glass: thin top-lit rim inside the key.
+                        val rim = MikuGlass.rimWidthDp.dp.toPx()
+                        drawRoundRect(
+                            brush = mikuGlassRimBrush(),
+                            topLeft = Offset(rim / 2f, rim / 2f),
+                            size = Size(size.width - rim, size.height - rim),
+                            cornerRadius =
+                                CornerRadius(
+                                    (cornerRadiusFraction * size.height - rim / 2f)
+                                        .coerceAtLeast(0f)
+                                ),
+                            style = Stroke(width = rim),
+                        )
+                    }
                 }
                 .clip(CircleShape)
                 .pinPadButtonInput(

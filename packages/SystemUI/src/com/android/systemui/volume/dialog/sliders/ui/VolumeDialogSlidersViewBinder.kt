@@ -27,6 +27,7 @@ import androidx.compose.ui.util.fastForEachIndexed
 import com.android.app.tracing.coroutines.launchInTraced
 import com.android.app.tracing.coroutines.launchTraced
 import com.android.internal.graphics.drawable.BackgroundBlurDrawable
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.res.R
 import com.android.systemui.util.children
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
@@ -134,15 +135,18 @@ constructor(
                 0
             }
         )
-        (layers.getDrawable(1) as GradientDrawable).setColor(
-            context.getColor(
-                if (supported) {
-                    R.color.volume_dialog_view_background_blur
-                } else {
-                    R.color.volume_dialog_view_background_blur_fallback
-                }
+        val surface = layers.getDrawable(1) as GradientDrawable
+        if (MikuGlass.enabled && supported) {
+            // MikuUI glass: neutral translucent panel + rim over the per-view blur.
+            MikuGlass.applyGlass(surface, MikuGlass.panelColor(context), context)
+        } else {
+            surface.setColor(
+                context.getColor(
+                    if (supported) R.color.volume_dialog_view_background_blur
+                    else R.color.volume_dialog_view_background_blur_fallback
+                )
             )
-        )
+        }
     }
 
     private fun CoroutineScope.bindSlider(

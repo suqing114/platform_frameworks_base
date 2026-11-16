@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.android.compose.theme.PlatformTheme
+import com.android.systemui.miku.glass.mikuGlassSliderColors
 import com.android.systemui.common.ui.compose.Icon
 import com.android.systemui.haptics.slider.SliderHapticFeedbackFilter
 import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
@@ -105,11 +106,13 @@ private fun VolumeDialogSlider(
 ) {
     val colors =
         if (isVolumeDialogVertical) {
-            SliderDefaults.colors(
-                activeTickColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                disabledActiveTickColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                disabledInactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            mikuGlassSliderColors(
+                SliderDefaults.colors(
+                    activeTickColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    disabledActiveTickColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    disabledInactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                )
             )
         } else {
             SliderDefaults.colors(

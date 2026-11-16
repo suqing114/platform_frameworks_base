@@ -16,11 +16,13 @@
 
 package com.android.systemui.volume.dialog.captions.ui.binder
 
+import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.TransitionDrawable
 import android.os.Handler
 import android.view.View
 import com.android.app.tracing.coroutines.launchInTraced
 import com.android.app.tracing.coroutines.launchTraced
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.Flags
 import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.res.R
@@ -90,6 +92,13 @@ constructor(
 
                     val transition = background as TransitionDrawable
                     transition.isCrossFadeEnabled = true
+                    if (index == 0 && MikuGlass.enabled) {
+                        MikuGlass.applyGlass(
+                            (transition.getDrawable(0) as? InsetDrawable)?.drawable,
+                            MikuGlass.fillColor(context),
+                            context,
+                        )
+                    }
                     if (index == 0) {
                         if (isEnabled) {
                             transition.startTransition(0)

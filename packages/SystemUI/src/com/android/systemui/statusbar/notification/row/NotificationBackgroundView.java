@@ -88,6 +88,8 @@ public class NotificationBackgroundView extends View implements Dumpable,
     // True only if the dismiss button is visible.
     private boolean mDrawDismissButtonCutout = false;
     private boolean mOnKeyguard = true;
+    // MikuUI glass: whether the row is on the unoccluded lockscreen (set by the row itself).
+    private boolean mMikuGlassOnKeyguard = false;
 
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -171,6 +173,21 @@ public class NotificationBackgroundView extends View implements Dumpable,
      */
     private boolean isMikuGlassUntinted(int tintColor) {
         return tintColor == 0 || tintColor == mNormalColor;
+    }
+
+    private int mikuGlassCardColor() {
+        return MikuGlass.notificationCardColor(getContext(), mMikuGlassOnKeyguard);
+    }
+
+    /** MikuUI glass: lockscreen cards use a neutral tint instead of the shade's white fill. */
+    public void setMikuGlassOnKeyguard(boolean onKeyguard) {
+        if (mMikuGlassOnKeyguard == onKeyguard) {
+            return;
+        }
+        mMikuGlassOnKeyguard = onKeyguard;
+        if (MikuGlass.enabled && mBackground != null) {
+            setTint(mTintColor);
+        }
     }
 
     /** MikuUI glass: thin top-lit rim around an untinted (glass) notification card. */
@@ -355,7 +372,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
      */
     @UiThread
     public void setBlurBackgroundEnabled(boolean enabled) {
-        if (!lockscreenBlurForNotifications()) {
+        if (!lockscreenBlurForNotifications() && !MikuGlass.lockscreenBlur) {
             return;
         }
         Assert.isMainThread();
@@ -377,7 +394,9 @@ public class NotificationBackgroundView extends View implements Dumpable,
                                 mBackgroundBlurDrawable.setXfermode(null);
                                 mBackgroundBlurDrawable.setCallback(
                                         NotificationBackgroundView.this);
-                                mBackgroundBlurDrawable.setColor(mNormalColor);
+                                mBackgroundBlurDrawable.setColor(MikuGlass.enabled
+                                        && isMikuGlassUntinted(mTintColor)
+                                        ? mikuGlassCardColor() : mNormalColor);
 
                                 updateBackgroundRadii();
                                 invalidate();
@@ -419,7 +438,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
         // MikuUI glass: an untinted card is painted with the translucent glass fill. mTintColor
         // keeps the logical color, so contrast / stateful-color logic is unchanged.
         final int drawColor = (MikuGlass.enabled && isMikuGlassUntinted(tintColor))
-                ? MikuGlass.notificationCardColor(getContext()) : tintColor;
+                ? mikuGlassCardColor() : tintColor;
         if (notificationRowTransparency()) {
             ((GradientDrawable) baseLayer.mutate()).setColor(drawColor);
         } else {

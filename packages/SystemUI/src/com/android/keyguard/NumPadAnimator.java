@@ -42,6 +42,7 @@ import com.android.systemui.Flags;
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants.Animation;
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants.Color;
 import com.android.systemui.bouncer.ui.BouncerColors;
+import com.android.systemui.miku.glass.MikuGlass;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -175,6 +176,14 @@ class NumPadAnimator {
 
         mPressedBackgroundColor = context.getColor(Color.bgPressed);
         mTextColorPressed = context.getColor(Color.digitPressed);
+
+        if (MikuGlass.enabled) {
+            // MikuUI glass: translucent keys with a thin rim over the blurred bouncer backdrop.
+            mNormalBackgroundColor = isNumPadKey ? MikuGlass.fillColor(context)
+                    : MikuGlass.strongFillColor(context);
+            mPressedBackgroundColor = MikuGlass.pressedFillColor();
+            MikuGlass.applyRimStroke(mBackground, context);
+        }
 
         mBackground.setColor(mNormalBackgroundColor);
         mTextColorPrimary = context.getColor(isNumPadKey ? Color.digit : Color.action);

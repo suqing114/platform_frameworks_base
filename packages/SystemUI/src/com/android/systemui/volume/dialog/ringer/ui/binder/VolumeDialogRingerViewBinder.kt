@@ -39,6 +39,7 @@ import com.android.app.tracing.coroutines.launchInTraced
 import com.android.app.tracing.coroutines.launchTraced
 import com.android.internal.R as internalR
 import com.android.internal.graphics.drawable.BackgroundBlurDrawable
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.res.R
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
 import com.android.systemui.volume.dialog.ringer.ui.util.VolumeDialogRingerDrawerTransitionListener
@@ -335,12 +336,18 @@ constructor(
                     0
                 }
             )
-            (layers.getDrawable(1) as GradientDrawable).setColor(
-                context.getColor(
-                    if (supported) R.color.volume_dialog_view_background_blur
-                    else R.color.volume_dialog_view_background_blur_fallback
+            val surface = layers.getDrawable(1) as GradientDrawable
+            if (MikuGlass.enabled && supported) {
+                // MikuUI glass: neutral translucent panel + rim over the per-view blur.
+                MikuGlass.applyGlass(surface, MikuGlass.panelColor(context), context)
+            } else {
+                surface.setColor(
+                    context.getColor(
+                        if (supported) R.color.volume_dialog_view_background_blur
+                        else R.color.volume_dialog_view_background_blur_fallback
+                    )
                 )
-            )
+            }
         }
     }
 
@@ -476,6 +483,13 @@ constructor(
             setBackgroundResource(R.drawable.volume_ringer_item_bg)
             setColorFilter(context.getColor(internalR.color.materialColorOnSurface))
             background = background.mutate()
+            if (MikuGlass.enabled) {
+                MikuGlass.applyGlass(
+                    (background as? InsetDrawable)?.drawable,
+                    MikuGlass.fillColor(context),
+                    context,
+                )
+            }
         }
         setOnClickListener {
             viewModel.onRingerButtonClicked(buttonViewModel.ringerMode, isSelected)

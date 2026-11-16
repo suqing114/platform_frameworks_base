@@ -68,6 +68,13 @@ fun Modifier.mikuGlassRim(shape: Shape): Modifier {
     }
 }
 
+/** Top-lit rim gradient (white, fading towards the bottom) for custom draw code. */
+fun mikuGlassRimBrush(): Brush =
+    Brush.verticalGradient(
+        0f to Color.White.copy(alpha = MikuGlass.rimTopAlpha),
+        1f to Color.White.copy(alpha = MikuGlass.rimBottomAlpha),
+    )
+
 /** Glass variant of the shade slider colors (brightness). */
 @Composable
 @ReadOnlyComposable

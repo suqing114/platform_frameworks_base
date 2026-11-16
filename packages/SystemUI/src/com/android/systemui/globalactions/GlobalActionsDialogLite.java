@@ -130,6 +130,7 @@ import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.display.data.repository.DisplayWindowPropertiesRepository;
 import com.android.systemui.display.shared.model.DisplayWindowProperties;
 import com.android.systemui.globalactions.domain.interactor.GlobalActionsInteractor;
+import com.android.systemui.miku.glass.MikuGlass;
 import com.android.systemui.globalactions.shared.model.GlobalActionType;
 import com.android.systemui.globalactions.shared.model.GlobalActionsEvent;
 import com.android.systemui.plugins.ActivityStarter;
@@ -607,7 +608,7 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         WindowManager.LayoutParams attrs = dialog.getWindow().getAttributes();
         attrs.setTitle("GlobalActionsDialogLite");
         attrs.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
-        if (isVolumeAndPowerBlurEnabled() && mTranslucentPowerMenu) {
+        if ((isVolumeAndPowerBlurEnabled() && mTranslucentPowerMenu) || MikuGlass.enabled) {
             attrs.flags |= WindowManager.LayoutParams.FLAG_BLUR_BEHIND;
             attrs.setBlurBehindRadius(mContext.getResources().getDimensionPixelSize(
                     com.android.systemui.res.R.dimen.global_actions_blur_radius));
@@ -2069,6 +2070,11 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
             messageView.setSelected(true); // necessary for marquee to work
             mIconView.setImageDrawable(getIcon(context));
             mIconView.setScaleType(ScaleType.CENTER_CROP);
+            if (MikuGlass.enabled && !isTv()) {
+                // MikuUI glass: translucent round button with a thin rim.
+                MikuGlass.applyGlass(mIconView.getBackground(), MikuGlass.fillColor(context),
+                        context);
+            }
             if (isTv()) {
                 mIconView.setFocusable(true);
                 mIconView.setClickable(true);

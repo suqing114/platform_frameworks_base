@@ -29,6 +29,7 @@ import android.view.ViewGroup;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.HardwareBgDrawable;
 import com.android.systemui.MultiListLayout;
+import com.android.systemui.miku.glass.MikuGlass;
 import com.android.systemui.res.R;
 import com.android.systemui.util.leak.RotationUtils;
 
@@ -82,6 +83,15 @@ public abstract class GlobalActionsLayout extends MultiListLayout {
     }
 
     private void updateIsBlurSupported() {
+        if (MikuGlass.enabled && mIsBlurSupported != null && getListView() != null
+                && getListView().getBackground() != null) {
+            // MikuUI glass: neutral translucent panel over the blur-behind window.
+            if (mIsBlurSupported) {
+                updateBackground(MikuGlass.panelColor(mContext));
+                MikuGlass.applyRimStroke(getListView().getBackground(), mContext);
+            }
+            return;
+        }
         if (isVolumeAndPowerBlurEnabled() && mBackgroundsSet && mIsBlurSupported != null) {
             updateBackground(mContext.getColor(
                     mIsBlurSupported && mTranslucentPowerMenu

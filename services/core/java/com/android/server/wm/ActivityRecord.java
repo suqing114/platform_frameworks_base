@@ -7559,6 +7559,17 @@ public final class ActivityRecord extends WindowToken {
                     + " of " + this + " since target sdk 36");
         }
 
+        // MikuUI: under the landscape-only policy the display follows a landscape request. When it
+        // already is in a matching rotation nothing rotates, so nothing re-resolves a letterbox
+        // computed for this activity's previous (ignored, portrait) request: it stayed boxed in
+        // portrait. Re-resolve here, the same way WindowContainer#setOrientation does for
+        // requests the display does not handle.
+        if (getParent() != null && mDisplayContent != null
+                && mDisplayContent.shouldFollowMikuOrientationRequest(getOverrideOrientation())
+                && getConfiguration().orientation != getRequestedConfigurationOrientation()) {
+            onConfigurationChanged(getParent().getConfiguration());
+        }
+
         // Push the new configuration to the requested app in case where it's not pushed, e.g. when
         // the request is handled at task level with letterbox.
         if (!getMergedOverrideConfiguration().equals(
@@ -7634,8 +7645,19 @@ public final class ActivityRecord extends WindowToken {
         if (isRestrictedFixedOrientation(candidateOrientation)) {
             candidateOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
         }
-        return mAppCompatController.getOrientationPolicy()
+        candidateOrientation = mAppCompatController.getOrientationPolicy()
                 .overrideOrientationIfNeeded(candidateOrientation);
+        // MikuUI: under the landscape-only policy a request for one specific landscape side
+        // (videos usually ask for plain LANDSCAPE) becomes "either landscape side": the display
+        // keeps the side the user is holding instead of flipping 180 degrees, and from portrait
+        // it turns towards the side the device is tilted to (or the locked one).
+        if ((candidateOrientation == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                || candidateOrientation == ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE)
+                && mDisplayContent != null
+                && mDisplayContent.shouldFollowMikuOrientationRequest(candidateOrientation)) {
+            candidateOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE;
+        }
+        return candidateOrientation;
     }
 
     /**

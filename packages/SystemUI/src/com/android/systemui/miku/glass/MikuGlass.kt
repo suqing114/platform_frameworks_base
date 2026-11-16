@@ -25,6 +25,8 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.os.SystemProperties
 
 /**
@@ -55,6 +57,12 @@ object MikuGlass {
     @JvmField val rimTopAlpha: Float = prop("rim_top", 0.35f)
     @JvmField val rimBottomAlpha: Float = prop("rim_bottom", 0.06f)
     @JvmField val rimWidthDp: Float = prop("rim_width_dp", 1.0f, max = 3f)
+
+    // Lockscreen: per-card background blur for notifications and shortcuts.
+    @JvmField
+    val lockscreenBlur: Boolean = enabled && SystemProperties.getBoolean(PREFIX + "lockscreen_blur", true)
+    private val lockCardAlpha = prop("lock_card_alpha", 0.40f)
+    private val pressedFillAlpha = prop("pressed_fill_alpha", 0.35f)
 
     private val NEUTRAL_DARK = Color.rgb(0x1C, 0x1C, 0x1E)
     private val NEUTRAL_LIGHT = Color.rgb(0xF4, 0xF4, 0xF6)
@@ -99,6 +107,66 @@ object MikuGlass {
     @JvmStatic
     fun notificationCardColor(context: Context): Int =
         withAlpha(Color.WHITE, fillAlpha(isNight(context)))
+
+    /**
+     * Notification card fill; on the lockscreen the card sits on a sharp wallpaper (with its own
+     * small blur), so it uses a neutral tint that keeps the theme's text color readable.
+     */
+    @JvmStatic
+    fun notificationCardColor(context: Context, onKeyguard: Boolean): Int {
+        if (!onKeyguard) return notificationCardColor(context)
+        return withAlpha(if (isNight(context)) NEUTRAL_DARK else NEUTRAL_LIGHT, lockCardAlpha)
+    }
+
+    /** Translucent white fill for small glass controls (keys, buttons) in the context's theme. */
+    @JvmStatic
+    fun fillColor(context: Context): Int = withAlpha(Color.WHITE, fillAlpha(isNight(context)))
+
+    /** Slightly stronger fill, e.g. for secondary/action keys. */
+    @JvmStatic
+    fun strongFillColor(context: Context): Int =
+        withAlpha(Color.WHITE, (fillAlpha(isNight(context)) + 0.08f).coerceAtMost(1f))
+
+    /** Fill while a glass control is pressed. */
+    @JvmStatic
+    fun pressedFillColor(): Int = withAlpha(Color.WHITE, pressedFillAlpha)
+
+    /** Neutral glass tint for floating panels (power menu, dialogs). */
+    @JvmStatic
+    fun panelColor(context: Context): Int = shadePanelColor(context)
+
+    /** Uniform rim color for views that can only draw a solid stroke. */
+    @JvmStatic
+    fun rimStrokeColor(): Int =
+        withAlpha(Color.WHITE, ((rimTopAlpha + rimBottomAlpha) / 2f + 0.04f).coerceAtMost(1f))
+
+    @JvmStatic
+    fun rimStrokePx(context: Context): Int =
+        if (rimWidthDp <= 0f) 0
+        else (rimWidthDp * context.resources.displayMetrics.density + 0.5f).toInt().coerceAtLeast(1)
+
+    /**
+     * Turns a GradientDrawable background into glass: clears any tint (a tint would also recolor
+     * the stroke), sets the translucent [fill] and the rim stroke. No-op for other drawables.
+     */
+    @JvmStatic
+    fun applyGlass(drawable: Drawable?, fill: Int, context: Context) {
+        if (!enabled) return
+        val gradient = drawable?.mutate() as? GradientDrawable ?: return
+        gradient.setTintList(null)
+        gradient.setColor(fill)
+        val px = rimStrokePx(context)
+        if (px > 0) gradient.setStroke(px, rimStrokeColor())
+    }
+
+    /** Adds the solid rim stroke to a GradientDrawable background (no-op for other drawables). */
+    @JvmStatic
+    fun applyRimStroke(drawable: Drawable?, context: Context) {
+        if (!enabled) return
+        val gradient = drawable?.mutate() as? GradientDrawable ?: return
+        val px = rimStrokePx(context)
+        if (px > 0) gradient.setStroke(px, rimStrokeColor())
+    }
 
     private val rimPath = Path()
     private val rimRect = RectF()

@@ -20,6 +20,7 @@ import android.content.Context
 import com.android.systemui.Flags
 import com.android.systemui.bouncer.shared.constants.KeyguardBouncerConstants.ColorId.NUM_PAD_BACKGROUND
 import com.android.systemui.common.shared.colors.SurfaceEffectColors
+import com.android.systemui.miku.glass.MikuGlass
 import com.android.systemui.res.R.color
 import com.android.systemui.shade.ui.ShadeColors
 
@@ -35,6 +36,7 @@ object BouncerColors {
 
     @JvmStatic
     fun Context.pinDigitBg(): Int {
+        if (MikuGlass.enabled) return MikuGlass.fillColor(this)
         return if (Flags.bouncerUiRevamp() && Flags.bouncerUiRevamp2()) {
             return SurfaceEffectColors.surfaceEffect1(context = this)
         } else {
@@ -44,6 +46,7 @@ object BouncerColors {
 
     @JvmStatic
     fun Context.pinActionBg(): Int {
+        if (MikuGlass.enabled) return MikuGlass.strongFillColor(this)
         return if (Flags.bouncerUiRevamp() && Flags.bouncerUiRevamp2()) {
             return getColor(color.pin_bouncer_action_button_bg)
         } else {

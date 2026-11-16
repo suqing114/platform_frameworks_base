@@ -47,6 +47,7 @@ import com.android.internal.jank.InteractionJankMonitor.Configuration;
 import com.android.systemui.Flags;
 import com.android.systemui.Gefingerpoken;
 import com.android.systemui.common.shared.colors.SurfaceEffectColors;
+import com.android.systemui.miku.glass.MikuGlass;
 import com.android.systemui.res.R;
 import com.android.systemui.shade.TouchLogger;
 import com.android.systemui.statusbar.NotificationShelf;
@@ -372,12 +373,13 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     }
 
     protected boolean usesBlurredBackground() {
-        return usesTransparentBackground() && lockscreenBlurForNotifications();
+        return usesTransparentBackground()
+                && (lockscreenBlurForNotifications() || (MikuGlass.lockscreenBlur && mOnKeyguard));
     }
 
     protected boolean usesTransparentBackground() {
         return mIsBlurSupported && notificationRowTransparency()
-                && (!mOnKeyguard || lockscreenBlurForNotifications());
+                && (!mOnKeyguard || lockscreenBlurForNotifications() || MikuGlass.lockscreenBlur);
     }
 
     @Override
@@ -883,8 +885,13 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         }
         mOnKeyguard = onKeyguard;
         mBackgroundNormal.setOnKeyguard(mOnKeyguard);
+        mBackgroundNormal.setMikuGlassOnKeyguard(mOnKeyguard);
         if (notificationRowTransparency()) {
             updateBackgroundTint();
+            if (MikuGlass.lockscreenBlur) {
+                // MikuUI glass: per-card blur only while on the lockscreen.
+                mBackgroundNormal.setBlurBackgroundEnabled(usesBlurredBackground());
+            }
         }
     }
 

@@ -115,17 +115,36 @@ constructor(
             MutableStateFlow(false)
         }
 
+    /**
+     * Miku: Dual Shade is only active in portrait. In landscape the shade falls back to the
+     * previous single-shade wide layout.
+     */
+    private val isDualShadeActive: StateFlow<Boolean> =
+        combine(isDualShadeEnabled, shadeConfigRepository.isPortraitShade) { dual, portrait ->
+                dual && portrait
+            }
+            .stateIn(
+                applicationScope,
+                SharingStarted.Eagerly,
+                initialValue = isDualShadeEnabled.value && shadeConfigRepository.isPortraitShade(),
+            )
+
     override val isFullWidthShade: StateFlow<Boolean> =
         if (DualShadeFlag.isEnabled) {
-                isDualShadeEnabled.flatMapLatest { isDualShadeEnabled ->
+                isDualShadeActive.flatMapLatest { isDualShadeEnabled ->
                     if (isDualShadeEnabled) {
                         // Dual Shade should be shown
                         Log.d(TAG, "Shade layout is derived from the Dual Shade config")
+                        // Miku: keep the upstream value (false on tablets). Forcing true made the
+                        // notification stack lay out at full screen width inside the Dual Shade
+                        // card, so its right side was clipped.
                         shadeConfigRepository.isFullWidthShade
                     } else {
-                        // Single shade should be shown
-                        Log.d(TAG, "Single shade is always full-width")
-                        flowOf(true)
+                        // Miku: landscape keeps the classic layout: Split (Quick Settings on the
+                        // left, notifications on the right) wherever the legacy split-shade config
+                        // asks for it, Single otherwise.
+                        Log.d(TAG, "Shade layout is derived from the legacy config (no Dual)")
+                        shadeConfigRepository.legacyUseSplitShade.map { !it }
                     }
                 }
             } else {
@@ -146,12 +165,12 @@ constructor(
     private val shadeModeInitialValue: ShadeMode
         get() =
             determineShadeMode(
-                isDualShadeEnabled = isDualShadeEnabled.value,
+                isDualShadeEnabled = isDualShadeActive.value,
                 isFullWidthShade = isFullWidthShade.value,
             )
 
     override val shadeMode: StateFlow<ShadeMode> =
-        combine(isDualShadeEnabled, isFullWidthShade, ::determineShadeMode)
+        combine(isDualShadeActive, isFullWidthShade, ::determineShadeMode)
             .logDiffsForTable(tableLogBuffer = tableLogBuffer, initialValue = shadeModeInitialValue)
             .stateIn(applicationScope, SharingStarted.Eagerly, initialValue = shadeModeInitialValue)
 
@@ -159,10 +178,12 @@ constructor(
         isDualShadeEnabled: Boolean,
         isFullWidthShade: Boolean,
     ): ShadeMode {
-        return if (DualShadeFlag.isEnabled) {
-            if (isDualShadeEnabled) ShadeMode.Dual else ShadeMode.Single
-        } else {
-            if (isFullWidthShade) ShadeMode.Single else ShadeMode.Split
+        // Miku: with Dual Shade limited to portrait, the other orientation falls back to the
+        // legacy choice between Single and Split instead of always being Single.
+        return when {
+            DualShadeFlag.isEnabled && isDualShadeEnabled -> ShadeMode.Dual
+            isFullWidthShade -> ShadeMode.Single
+            else -> ShadeMode.Split
         }
     }
 
