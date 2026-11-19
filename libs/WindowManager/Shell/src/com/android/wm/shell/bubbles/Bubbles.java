@@ -134,6 +134,18 @@ public interface Bubbles {
     void expandStackAndSelectBubble(Bubble bubble);
 
     /**
+     * Miku: opens the activity behind {@code pendingIntent} in an app bubble and expands it.
+     */
+    default void expandStackAndSelectBubble(android.app.PendingIntent pendingIntent,
+            UserHandle user) {}
+
+    /** Miku: whether {@link #expandStackAndSelectBubble(android.app.PendingIntent,
+     * UserHandle)} can open an app bubble right now. */
+    default boolean canExpandAppBubble() {
+        return false;
+    }
+
+    /**
      * This method has different behavior depending on:
      *    - if a notes bubble exists
      *    - if a notes bubble is expanded

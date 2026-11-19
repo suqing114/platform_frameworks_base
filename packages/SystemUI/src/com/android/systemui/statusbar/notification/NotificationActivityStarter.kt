@@ -52,6 +52,12 @@ interface NotificationActivityStarter {
     /** Called when the user succeed to drop notification to proper target view. */
     fun onDragSuccess(entry: NotificationEntry)
 
+    /** Miku: whether pulling this heads-up notification down may open it in a freeform window. */
+    fun canLaunchNotificationInFreeform(entry: NotificationEntry): Boolean
+
+    /** Miku: the user pulled a heads-up notification down; open it in a freeform window. */
+    fun onNotificationPulledToFreeform(entry: NotificationEntry, row: ExpandableNotificationRow)
+
     val isCollapsingToShowActivityOverLockscreen: Boolean
         get() = false
 

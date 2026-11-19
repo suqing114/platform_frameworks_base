@@ -96,7 +96,29 @@ public abstract class BubbleModule {
     @Provides
     static BubbleFeatureConfig providesBubbleFeatureConfig(Context context,
             DesktopState desktopState) {
-        return new BubbleFeatureConfigImpl(context, desktopState);
+        final BubbleFeatureConfig base = new BubbleFeatureConfigImpl(context, desktopState);
+        // Miku: upstream turns app bubbles off on displays that support desktop windowing
+        // (disable_bubble_anything_desktop_windowing). We want them for "pull a HUN down
+        // to open it in a small window", so allow them unless the property says otherwise.
+        if (!android.os.SystemProperties.getBoolean(
+                "persist.wm.miku.app_bubbles_on_desktop", true)) {
+            return base;
+        }
+        return new BubbleFeatureConfig() {
+            @Override
+            public boolean areAppBubblesSupported() {
+                android.app.ActivityManager am =
+                        context.getSystemService(android.app.ActivityManager.class);
+                if (am != null && am.isLowRamDevice()) return false;
+                return com.android.wm.shell.shared.bubbles.BubbleFlagHelper
+                        .enableCreateAnyBubble();
+            }
+
+            @Override
+            public boolean isScrimEnabled(int displayId) {
+                return base.isScrimEnabled(displayId);
+            }
+        };
     }
 
     @WMSingleton

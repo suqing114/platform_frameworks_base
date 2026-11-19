@@ -62,6 +62,7 @@ import com.android.systemui.dagger.qualifiers.Application;
 import com.android.systemui.dagger.qualifiers.Background;
 import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.log.FrameworkStatsLogWrapper;
+import com.android.systemui.miku.hun.MikuHunFreeform;
 import com.android.systemui.plugins.ActivityStarter;
 import com.android.systemui.power.domain.interactor.PowerInteractor;
 import com.android.systemui.scene.shared.flag.SceneContainerFlag;
@@ -544,6 +545,97 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
         mClickNotifier.onNotificationClick(notificationKey, nv);
 
         mIsCollapsingToShowActivityOverLockscreen = false;
+    }
+
+    // Miku: pull a heads-up notification down to open it in a freeform window.
+    @Override
+    public boolean canLaunchNotificationInFreeform(@NonNull NotificationEntry entry) {
+        if (!MikuHunFreeform.isEnabled(mContext, mUserTracker.getUserId())) {
+            return false;
+        }
+        // Locked / occluded keyguard: keep the stock behaviour (WM would refuse freeform anyway).
+        if (mKeyguardStateController.isShowing()) {
+            return false;
+        }
+        if (entry.isBubble() || mRemoteInputManager.isRemoteInputActive(entry)) {
+            return false;
+        }
+        final Notification notification = entry.getSbn().getNotification();
+        final PendingIntent intent = notification.contentIntent;
+        if (intent == null || !intent.isActivity()) {
+            return false;
+        }
+        // Calls and alarms belong in their own full screen UI.
+        if (Notification.CATEGORY_CALL.equals(notification.category)
+                || Notification.CATEGORY_ALARM.equals(notification.category)
+                || notification.isStyle(Notification.CallStyle.class)) {
+            return false;
+        }
+        final int creatorUserId = intent.getCreatorUserHandle().getIdentifier();
+        if (mLockPatternUtils.isSeparateProfileChallengeEnabled(creatorUserId)
+                && mKeyguardManager.isDeviceLocked(creatorUserId)) {
+            return false;
+        }
+        return !mActivityIntentHelper.wouldPendingLaunchResolverActivity(intent,
+                mLockscreenUserManager.getCurrentUserId());
+    }
+
+    @Override
+    public void onNotificationPulledToFreeform(@NonNull NotificationEntry entry,
+            @NonNull ExpandableNotificationRow row) {
+        final String key = entry.getKey();
+        final PendingIntent intent = entry.getSbn().getNotification().contentIntent;
+        if (intent == null) {
+            return;
+        }
+        if (MikuHunFreeform.useBubble() && mBubblesManagerOptional.isPresent()
+                && mBubblesManagerOptional.get().canExpandAppBubble()) {
+            // App bubble: floats over the current app; the bubble window can be moved / resized.
+            removeHunAfterClick(row);
+            final UserHandle user = intent.getCreatorUserHandle();
+            mMainThreadHandler.post(() ->
+                    mBubblesManagerOptional.get().expandStackAndSelectBubble(intent, user));
+            android.util.Log.i(MikuHunFreeform.TAG, "opening " + key + " in an app bubble");
+            finishPulledNotification(entry, key);
+            return;
+        }
+        final int displayId = mContextInteractor.getContext().getDisplayId();
+        final Bundle options =
+                MikuHunFreeform.makeLaunchOptions(mContext, displayId).toBundle();
+        Intent fillInIntent = null;
+        if (!TextUtils.isEmpty(entry.remoteInputText) && !mRemoteInputManager.isSpinning(key)) {
+            fillInIntent = new Intent().putExtra(Notification.EXTRA_REMOTE_INPUT_DRAFT,
+                    entry.remoteInputText.toString());
+        }
+        final Intent finalFillIn = fillInIntent;
+
+        removeHunAfterClick(row);
+        mUiBgExecutor.execute(() -> {
+            try {
+                ActivityManager.getService().resumeAppSwitches();
+            } catch (RemoteException ignored) { }
+            try {
+                int result = intent.sendAndReturnResult(mContext, 0, finalFillIn,
+                        null, null, null, options);
+                android.util.Log.i(MikuHunFreeform.TAG, "sent " + key + " in freeform, result="
+                        + result);
+            } catch (PendingIntent.CanceledException e) {
+                android.util.Log.w(MikuHunFreeform.TAG, "intent canceled for " + key, e);
+            }
+            mAssistManagerLazy.get().hideAssist();
+        });
+        finishPulledNotification(entry, key);
+    }
+
+    /** Same bookkeeping as a normal click: auto-cancel and tell NMS. */
+    private void finishPulledNotification(NotificationEntry entry, String key) {
+        final NotificationVisibility nv = mVisibilityProvider.obtain(entry, true);
+        if (shouldAutoCancel(entry.getSbn())) {
+            final Runnable removeNotification =
+                    mOnUserInteractionCallback.registerFutureDismissal(entry, REASON_CLICK);
+            mMainThreadHandler.post(removeNotification);
+        }
+        mUiBgExecutor.execute(() -> mClickNotifier.onNotificationClick(key, nv));
     }
 
     private void expandBubbleStackOnMainThread(NotificationEntry entry) {

@@ -98,6 +98,7 @@ import com.android.systemui.statusbar.notification.collection.EntryAdapter;
 import com.android.systemui.statusbar.notification.collection.EntryWithDismissStats;
 import com.android.systemui.statusbar.notification.collection.NotifCollection;
 import com.android.systemui.statusbar.notification.collection.NotifPipeline;
+import com.android.systemui.statusbar.notification.NotificationActivityStarter;
 import com.android.systemui.statusbar.notification.collection.NotificationEntry;
 import com.android.systemui.statusbar.notification.collection.PipelineDumpable;
 import com.android.systemui.statusbar.notification.collection.PipelineDumper;
@@ -869,7 +870,8 @@ public class NotificationStackScrollLayoutController implements Dumpable {
             SplitShadeStateController splitShadeStateController,
             SensitiveNotificationProtectionController sensitiveNotificationProtectionController,
             MagneticNotificationRowManager magneticNotificationRowManager,
-            NotificationSectionsManager sectionsManager) {
+            NotificationSectionsManager sectionsManager,
+            Provider<NotificationActivityStarter> notificationActivityStarter) {
         mView = view;
         mViewBinder = viewBinder;
         mStackStateLogger = stackLogger;
@@ -887,6 +889,24 @@ public class NotificationStackScrollLayoutController implements Dumpable {
                     getHeadsUpCallback(),
                     getHeadsUpNotificationViewController()
             );
+            // Miku: pull a HUN down to open it in a freeform window.
+            mHeadsUpTouchHelper.setFreeformLauncher(new HeadsUpTouchHelper.FreeformLauncher() {
+                @Override
+                public boolean canLaunchInFreeform(ExpandableNotificationRow row) {
+                    NotificationEntry entry = notifCollection.getEntry(row.getKey());
+                    return entry != null && notificationActivityStarter.get()
+                            .canLaunchNotificationInFreeform(entry);
+                }
+
+                @Override
+                public void launchInFreeform(ExpandableNotificationRow row) {
+                    NotificationEntry entry = notifCollection.getEntry(row.getKey());
+                    if (entry != null) {
+                        notificationActivityStarter.get()
+                                .onNotificationPulledToFreeform(entry, row);
+                    }
+                }
+            });
         }
         mNotificationRoundnessManager = notificationRoundnessManager;
         mTunerService = tunerService;
@@ -2284,6 +2304,9 @@ public class NotificationStackScrollLayoutController implements Dumpable {
                     && !mView.getExpandedInThisMotion()
                     && !onlyScrollingInThisMotion
                     && !mView.getDisallowDismissInThisMotion()
+                    // Miku: the HUN is being pulled down into a freeform window.
+                    && !(mHeadsUpTouchHelper != null
+                            && mHeadsUpTouchHelper.isPullingToFreeform())
                     && mSwipeHelper.onTouchEvent(ev);
 
             final boolean scrollerWantsIt;
@@ -2426,6 +2449,12 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         }
 
         private boolean shouldHeadsUpHandleTouch() {
+            if (SceneContainerFlag.isEnabled() && mHeadsUpTouchHelper != null
+                    && mHeadsUpTouchHelper.isPullingToFreeform()) {
+                // Miku: keep the whole pull gesture with the HUN helper.
+                mSwipeHelper.cancelLongPress();
+                return true;
+            }
             return SceneContainerFlag.isEnabled() && mLongPressedView == null
                     && !mSwipeHelper.isSwiping();
         }

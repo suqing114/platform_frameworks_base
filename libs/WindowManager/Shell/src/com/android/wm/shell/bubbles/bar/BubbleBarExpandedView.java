@@ -264,6 +264,9 @@ public class BubbleBarExpandedView extends FrameLayout implements BubbleTaskView
                 ((ViewGroup) mTaskView.getParent()).removeView(mTaskView);
             }
             setupTaskView();
+            if (BubblePositioner.isMikuFreeBubbleWindowEnabled()) {
+                setupMikuResizeBar();
+            }
 
             getHandleView().setAccessibilityDelegate(new HandleViewAccessibilityDelegate());
         }
@@ -376,8 +379,295 @@ public class BubbleBarExpandedView extends FrameLayout implements BubbleTaskView
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         if (mTaskView != null) {
             int height = MeasureSpec.getSize(heightMeasureSpec);
+            if (mMikuResizeBar != null) {
+                // Miku: leave room for the resize strip under the app.
+                height = max(0, height - mMikuResizeBarHeight);
+            }
             measureChild(mTaskView, widthMeasureSpec, MeasureSpec.makeMeasureSpec(height,
                     MeasureSpec.getMode(heightMeasureSpec)));
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Miku: resize strip under the app so the bubble window can be resized like a small window.
+    // The app's task surface covers the rest of the view, so the handles must live outside it.
+    // ---------------------------------------------------------------------------------------
+
+    @Nullable private MikuResizeBar mMikuResizeBar;
+    private int mMikuResizeBarHeight;
+
+    private void setupMikuResizeBar() {
+        final float density = getResources().getDisplayMetrics().density;
+        mMikuResizeBarHeight = Math.round(30 * density);
+        mMikuResizeBar = new MikuResizeBar(getContext());
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(MATCH_PARENT,
+                mMikuResizeBarHeight, android.view.Gravity.BOTTOM);
+        addView(mMikuResizeBar, lp);
+    }
+
+    /** Miku: pushes the task view's current on-screen bounds to WM (after layout). */
+    public void mikuSyncTaskBounds() {
+        if (mTaskView == null) return;
+        post(() -> {
+            if (mTaskView != null && mTaskView.isAttachedToWindow() && !isAnimating()) {
+                mTaskView.onLocationChanged();
+            }
+        });
+    }
+
+    /** Applies a live resize; {@code commit} stores the result as the user's bounds. */
+    private void mikuApplyBounds(int left, int top, int width, int height, boolean commit) {
+        ViewGroup.LayoutParams lp = getLayoutParams();
+        if (lp != null && (lp.width != width || lp.height != height)) {
+            lp.width = width;
+            lp.height = height;
+            setLayoutParams(lp);
+        }
+        setX(left);
+        setY(top);
+        if (commit && mPositioner != null) {
+            mPositioner.setMikuUserExpandedViewBounds(
+                    new Rect(left, top, left + width, top + height));
+            if (getParent() instanceof BubbleBarLayerView) {
+                ((BubbleBarLayerView) getParent()).updateExpandedView();
+            }
+            mikuSyncTaskBounds();
+        }
+    }
+
+    /**
+     * Strip with three grab zones: bottom-left corner, bottom edge, bottom-right corner.
+     * The top edge stays where it is while resizing.
+     */
+    private final class MikuResizeBar extends View {
+        private static final int ZONE_LEFT = 0;
+        private static final int ZONE_BOTTOM = 1;
+        private static final int ZONE_RIGHT = 2;
+
+        private final android.graphics.Paint mFill =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint mMark =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final float mDensity;
+        private int mZone;
+        private float mDownRawX;
+        private float mDownRawY;
+        private int mStartLeft;
+        private int mStartTop;
+        private int mStartWidth;
+        private int mStartHeight;
+
+        MikuResizeBar(Context context) {
+            super(context);
+            mDensity = context.getResources().getDisplayMetrics().density;
+            mMark.setStyle(android.graphics.Paint.Style.STROKE);
+            mMark.setStrokeCap(android.graphics.Paint.Cap.ROUND);
+            mMark.setStrokeWidth(3 * mDensity);
+            updateColors();
+        }
+
+        private void updateColors() {
+            boolean night = (getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+            mFill.setColor(night ? 0xFF1F1F23 : 0xFFF0F1F4);
+            mMark.setColor(night ? 0x99FFFFFF : 0x80000000);
+        }
+
+        @Override
+        protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
+            super.onConfigurationChanged(newConfig);
+            updateColors();
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            final float w = getWidth();
+            final float h = getHeight();
+            canvas.drawRect(0, 0, w, h, mFill);
+            final float inset = 7 * mDensity;
+            final float arm = 10 * mDensity;
+            // Bottom-left and bottom-right corner marks.
+            canvas.drawLine(inset, h - inset - arm, inset, h - inset, mMark);
+            canvas.drawLine(inset, h - inset, inset + arm, h - inset, mMark);
+            canvas.drawLine(w - inset, h - inset - arm, w - inset, h - inset, mMark);
+            canvas.drawLine(w - inset, h - inset, w - inset - arm, h - inset, mMark);
+            // Bottom bar handle: pull down to go full screen.
+            final float pill = 48 * mDensity;
+            canvas.drawLine(w / 2 - pill / 2, h / 2, w / 2 + pill / 2, h / 2, mMark);
+        }
+
+        /** Width of each corner (resize) zone; the middle is the pull-to-fullscreen bar. */
+        private float cornerZoneWidth() {
+            return Math.min(getWidth() / 3f, 120 * mDensity);
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent ev) {
+            final BubbleBarExpandedView ev0 = BubbleBarExpandedView.this;
+            if (mPositioner == null || (ev0.isAnimating() && !mTracking)) return false;
+            final int action = ev.getActionMasked();
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                final float corner = cornerZoneWidth();
+                mZone = ev.getX() < corner ? ZONE_LEFT
+                        : ev.getX() > getWidth() - corner ? ZONE_RIGHT : ZONE_BOTTOM;
+                mDownRawX = ev.getRawX();
+                mDownRawY = ev.getRawY();
+                mStartLeft = Math.round(ev0.getX());
+                mStartTop = Math.round(ev0.getY());
+                mStartWidth = ev0.getWidth();
+                mStartHeight = ev0.getHeight();
+                mArmed = false;
+                mTracking = true;
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                showPreview();
+                return true;
+            }
+            if (!mTracking) return false;
+            final boolean done = action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL;
+            if (!done && action != android.view.MotionEvent.ACTION_MOVE) return true;
+            final float dx = ev.getRawX() - mDownRawX;
+            final float dy = ev.getRawY() - mDownRawY;
+            final Rect avail = mPositioner.getAvailableRect();
+
+            if (mZone == ZONE_BOTTOM) {
+                // Pull the bar down to open the app full screen; swipe it up to close it.
+                final float threshold = 72 * mDensity;
+                final boolean armedDown = dy >= threshold;
+                final boolean armedUp = dy <= -threshold;
+                final boolean armed = armedDown || armedUp;
+                if (armed != mArmed) {
+                    mArmed = armed;
+                    if (armed) {
+                        performHapticFeedback(
+                                android.view.HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE);
+                    }
+                }
+                if (!done) {
+                    ev0.setY(mStartTop + dy * 0.4f);
+                    // Fade a little while swiping up so "close" reads clearly.
+                    ev0.setAlpha(dy < 0 ? Math.max(0.5f, 1f + dy / (4 * threshold)) : 1f);
+                    if (armedDown) {
+                        updatePreview(avail.left, avail.top, avail.width(), avail.height());
+                    } else {
+                        updatePreview(0, 0, 0, 0);
+                    }
+                    return true;
+                }
+                hidePreview();
+                mTracking = false;
+                final boolean up = action == android.view.MotionEvent.ACTION_UP;
+                if (armedUp && up && mBubble != null && mManager != null) {
+                    BubbleLog.d("Miku: bubble bar swiped up, closing bubble %s", mBubble.getKey());
+                    final Bubble bubble = mBubble;
+                    ev0.animate().y(mStartTop - threshold).alpha(0f).setDuration(150)
+                            .withEndAction(() -> {
+                                if (com.android.wm.shell.Flags.bugDontRemoveTaskBubble()) {
+                                    bubble.setTaskShouldBeRemoved(true);
+                                }
+                                mManager.dismissBubble(bubble, Bubbles.DISMISS_USER_GESTURE);
+                                ev0.setAlpha(1f);
+                                ev0.setY(mStartTop);
+                            }).start();
+                    return true;
+                }
+                ev0.animate().y(mStartTop).alpha(1f).setDuration(150).start();
+                if (armedDown && up && mTaskView != null) {
+                    BubbleLog.d("Miku: bubble bar pulled down, moving task to full screen");
+                    mTaskView.moveToFullscreen();
+                }
+                return true;
+            }
+
+            // Corner: resize with the top edge fixed. Only a preview frame follows the finger
+            // (relaying out the task every frame is slow); the window is resized on release.
+            final int minW = mPositioner.getMikuMinExpandedViewWidth();
+            final int minH = mPositioner.getMikuMinExpandedViewHeight();
+            final int height = clamp(Math.round(mStartHeight + dy), minH,
+                    avail.bottom - mStartTop);
+            int left = mStartLeft;
+            int width;
+            if (mZone == ZONE_RIGHT) {
+                width = clamp(Math.round(mStartWidth + dx), minW, avail.right - mStartLeft);
+            } else {
+                final int right = mStartLeft + mStartWidth;
+                width = clamp(Math.round(mStartWidth - dx), minW, right - avail.left);
+                left = right - width;
+            }
+            if (!done) {
+                updatePreview(left, mStartTop, width, height);
+                return true;
+            }
+            hidePreview();
+            mTracking = false;
+            if (action == android.view.MotionEvent.ACTION_UP) {
+                mikuApplyBounds(left, mStartTop, width, height, /* commit= */ true);
+            }
+            return true;
+        }
+
+        private boolean mTracking;
+        private boolean mArmed;
+        @Nullable private MikuPreviewView mPreview;
+
+        private void showPreview() {
+            if (!(BubbleBarExpandedView.this.getParent() instanceof ViewGroup parent)) return;
+            if (mPreview == null) {
+                mPreview = new MikuPreviewView(getContext(), getRestingCornerRadius());
+            }
+            if (mPreview.getParent() == null) {
+                parent.addView(mPreview, new FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT));
+            }
+            updatePreview(0, 0, 0, 0);
+        }
+
+        private void updatePreview(int left, int top, int width, int height) {
+            if (mPreview != null) mPreview.setPreviewFrame(left, top, width, height);
+        }
+
+        private void hidePreview() {
+            if (mPreview != null && mPreview.getParent() instanceof ViewGroup parent) {
+                parent.removeView(mPreview);
+            }
+        }
+
+        private int clamp(int v, int min, int max) {
+            return Math.max(min, Math.min(v, Math.max(min, max)));
+        }
+    }
+
+    /** Full-size overlay that only draws a translucent frame where the window will end up. */
+    private static final class MikuPreviewView extends View {
+        private final android.graphics.Paint mFill =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Paint mStroke =
+                new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF mFrame = new android.graphics.RectF();
+        private final float mRadius;
+
+        MikuPreviewView(Context context, float radius) {
+            super(context);
+            mRadius = radius;
+            final float density = context.getResources().getDisplayMetrics().density;
+            mFill.setColor(0x33FFFFFF);
+            mStroke.setStyle(android.graphics.Paint.Style.STROKE);
+            mStroke.setStrokeWidth(2 * density);
+            mStroke.setColor(0xCCFFFFFF);
+            setWillNotDraw(false);
+        }
+
+        void setPreviewFrame(int left, int top, int width, int height) {
+            mFrame.set(left, top, left + width, top + height);
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(android.graphics.Canvas canvas) {
+            if (mFrame.isEmpty()) return;
+            canvas.drawRoundRect(mFrame, mRadius, mRadius, mFill);
+            canvas.drawRoundRect(mFrame, mRadius, mRadius, mStroke);
         }
     }
 

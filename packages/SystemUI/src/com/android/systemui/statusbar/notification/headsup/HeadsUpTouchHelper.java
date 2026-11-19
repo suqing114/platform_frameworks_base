@@ -19,11 +19,15 @@ package com.android.systemui.statusbar.notification.headsup;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.os.RemoteException;
+import android.util.Log;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.ViewConfiguration;
 
 import com.android.internal.statusbar.IStatusBarService;
 import com.android.systemui.Gefingerpoken;
+import com.android.systemui.miku.hun.MikuHunFreeform;
 import com.android.systemui.scene.shared.flag.SceneContainerFlag;
 import com.android.systemui.statusbar.notification.collection.NotificationEntry;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
@@ -48,6 +52,20 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
     private final HeadsUpNotificationViewController mPanel;
     private ExpandableNotificationRow mPickedChild;
     private String mPickedReason;
+
+    // Miku: pull the HUN down to open it in a freeform window.
+    @Nullable private FreeformLauncher mFreeformLauncher;
+    private final float mPullThreshold;
+    private final float mPullFlingVelocity;
+    /** The DOWN landed on the HUN row itself (not on the empty area around it). */
+    private boolean mDownOnHunRow;
+    private boolean mPullingToFreeform;
+    private boolean mPullArmed;
+    private boolean mLastEventConsumedByPull;
+    private ExpandableNotificationRow mPullRow;
+    private float mPullStartTranslationY;
+    private float mPullStartY;
+    @Nullable private VelocityTracker mPullVelocityTracker;
 
     public static final Boolean DEBUG = false;
 
@@ -75,6 +93,24 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
         Context context = mCallback.getContext();
         final ViewConfiguration configuration = ViewConfiguration.get(context);
         mTouchSlop = configuration.getScaledTouchSlop();
+        final float density = context.getResources().getDisplayMetrics().density;
+        mPullThreshold = MikuHunFreeform.THRESHOLD_DP * density;
+        mPullFlingVelocity = MikuHunFreeform.FLING_DP_PER_SEC * density;
+    }
+
+    /** Miku: sets who opens a pulled-down HUN in a freeform window; null disables the gesture. */
+    public void setFreeformLauncher(@Nullable FreeformLauncher launcher) {
+        mFreeformLauncher = launcher;
+    }
+
+    /** Miku: a downward pull on a HUN (to open it in a freeform window) is in progress. */
+    public boolean isPullingToFreeform() {
+        return mPullingToFreeform;
+    }
+
+    /** Miku: true if the last event given to {@link #onTouchEvent} belonged to a freeform pull. */
+    public boolean wasLastEventConsumedByFreeformPull() {
+        return mLastEventConsumedByPull;
     }
 
     public boolean isTrackingHeadsUp() {
@@ -83,6 +119,14 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
+        if (mPullingToFreeform) {
+            if (event.getActionMasked() != MotionEvent.ACTION_DOWN) {
+                // Keep the rest of the pull gesture.
+                return true;
+            }
+            // A new gesture started without us seeing the end of the old one.
+            cancelFreeformPull("stale pull on DOWN");
+        }
         if (!mTouchingHeadsUpView && event.getActionMasked() != MotionEvent.ACTION_DOWN) {
             return false;
         }
@@ -103,10 +147,12 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
                 setTrackingHeadsUp(false, "Intercept DOWN ");
                 ExpandableView child = mCallback.getChildAtRawPosition(x, y);
                 mTouchingHeadsUpView = false;
+                mDownOnHunRow = false;
                 if (child instanceof ExpandableNotificationRow) {
                     ExpandableNotificationRow pickedChild = (ExpandableNotificationRow) child;
                     mTouchingHeadsUpView = !mCallback.isExpanded()
                             && pickedChild.isHeadsUp() && pickedChild.isPinned();
+                    mDownOnHunRow = mTouchingHeadsUpView;
                     if (mTouchingHeadsUpView) {
                         setPickedChild(pickedChild, "Intercept DOWN on HUN");
                         eventStr += " on HUN";
@@ -119,7 +165,14 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
                         setPickedChild(topEntry.getRow(), "Intercept DOWN outside HUN");
                         mTouchingHeadsUpView = true;
                         eventStr += " outside HUN";
+                        // Miku: the lookup above uses view-local coordinates, which misses the
+                        // HUN when the NSSL is not at the screen's left edge (landscape).
+                        mDownOnHunRow = isOnRowOnScreen(topEntry.getRow(),
+                                event.getRawX(pointerIndex), event.getRawY(pointerIndex));
                     }
+                }
+                if (mTouchingHeadsUpView) {
+                    Log.d(TAG, "DOWN " + eventStr + " onRow=" + mDownOnHunRow);
                 }
                 break;
             case MotionEvent.ACTION_POINTER_UP:
@@ -142,6 +195,13 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
                 eventStr = "ACTION_MOVE touching:" + mTouchingHeadsUpView
                         + " movedEnough:" + movedEnough
                         + " downward:" + downward;
+                if (mTouchingHeadsUpView && movedEnough && downward && h > 0
+                        && startFreeformPull(event, y)) {
+                    // Miku: a downward pull on the HUN row opens it in a small window instead
+                    // of expanding the shade. Upward swipes keep the stock behaviour.
+                    debugLog("Intercept => " + eventStr + " => TRUE (freeform pull)");
+                    return true;
+                }
                 if (mTouchingHeadsUpView && movedEnough && downward) {
                     if (!SceneContainerFlag.isEnabled()) {
                         setTrackingHeadsUp(true, "Intercept MOVE");
@@ -204,6 +264,12 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
+        mLastEventConsumedByPull = false;
+        if (mPullingToFreeform) {
+            mLastEventConsumedByPull = true;
+            handleFreeformPull(event);
+            return true;
+        }
         String eventStr = "";
         if (SceneContainerFlag.isEnabled()) {
             int pointerIndex = event.findPointerIndex(mTrackingPointer);
@@ -242,6 +308,13 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
                     eventStr = "ACTION_MOVE touching:" + mTouchingHeadsUpView
                             + " movedEnough:" + movedEnough
                             + " downward:" + downward;
+                    if (mTouchingHeadsUpView && movedEnough && downward && h > 0
+                            && startFreeformPull(event, y)) {
+                        // Miku: same as in onInterceptTouchEvent; this path is used when the
+                        // NSSL handled the DOWN itself (seen in landscape).
+                        mLastEventConsumedByPull = true;
+                        return true;
+                    }
                     if (mTouchingHeadsUpView && movedEnough && downward) {
                         setTrackingHeadsUp(true, "Touch MOVE");
                         mCollapseSnoozes = h < 0;
@@ -312,6 +385,154 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
         mTrackingPointer = -1;
         setPickedChild(null, "endMotion");
         mTouchingHeadsUpView = false;
+        mDownOnHunRow = false;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Miku: pull the HUN down to open it in a freeform window.
+    // ---------------------------------------------------------------------------------------
+
+    /** Whether the raw (screen) point is inside the row as it is drawn on screen. */
+    private static boolean isOnRowOnScreen(ExpandableNotificationRow row, float rawX,
+            float rawY) {
+        if (row == null || !row.isAttachedToWindow()) return false;
+        final int[] loc = new int[2];
+        row.getLocationOnScreen(loc);
+        return rawX >= loc[0] && rawX <= loc[0] + row.getWidth()
+                && rawY >= loc[1] && rawY <= loc[1] + row.getActualHeight();
+    }
+
+    /** Starts the freeform pull if the picked row can be launched that way. */
+    private boolean startFreeformPull(MotionEvent event, float y) {
+        final ExpandableNotificationRow row = mPickedChild;
+        if (mFreeformLauncher == null || row == null || !mDownOnHunRow) {
+            Log.d(TAG, "no freeform pull: launcher=" + (mFreeformLauncher != null)
+                    + " row=" + (row != null) + " onRow=" + mDownOnHunRow);
+            return false;
+        }
+        if (!mFreeformLauncher.canLaunchInFreeform(row)) {
+            Log.d(TAG, "no freeform pull: not launchable " + row.getKey());
+            return false;
+        }
+        mPullingToFreeform = true;
+        mPullArmed = false;
+        mPullRow = row;
+        mPullStartTranslationY = row.getTranslationY();
+        // Start from the slop crossing so the row does not jump.
+        mPullStartY = y;
+        if (mPullVelocityTracker == null) {
+            mPullVelocityTracker = VelocityTracker.obtain();
+        } else {
+            mPullVelocityTracker.clear();
+        }
+        mPullVelocityTracker.addMovement(event);
+        // Keep the scene framework from also turning this drag into a shade expansion.
+        mCallback.claimTouchFromSceneFramework(event);
+        // Silence the alert like the stock drag does.
+        clearNotificationEffects();
+        Log.d(TAG, "freeform pull start key=" + row.getKey());
+        return true;
+    }
+
+    private void handleFreeformPull(MotionEvent event) {
+        final ExpandableNotificationRow row = mPullRow;
+        if (row == null) {
+            resetFreeformPull();
+            return;
+        }
+        int pointerIndex = event.findPointerIndex(mTrackingPointer);
+        if (pointerIndex < 0) {
+            pointerIndex = 0;
+            mTrackingPointer = event.getPointerId(pointerIndex);
+        }
+        final float y = event.getY(pointerIndex);
+        final float dy = y - mPullStartY;
+        if (mPullVelocityTracker != null) {
+            mPullVelocityTracker.addMovement(event);
+        }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_POINTER_UP: {
+                final int upPointer = event.getPointerId(event.getActionIndex());
+                if (mTrackingPointer == upPointer) {
+                    final int newIndex = event.getPointerId(0) != upPointer ? 0 : 1;
+                    mTrackingPointer = event.getPointerId(newIndex);
+                    // Keep the current offset when the finger changes.
+                    mPullStartY = event.getY(newIndex) - dy;
+                }
+                break;
+            }
+            case MotionEvent.ACTION_MOVE: {
+                row.setTranslationY(mPullStartTranslationY
+                        + MikuHunFreeform.dampen(dy, mPullThreshold));
+                final boolean armed = dy >= mPullThreshold;
+                if (armed != mPullArmed) {
+                    mPullArmed = armed;
+                    final float scale = armed ? 0.96f : 1f;
+                    row.animate().scaleX(scale).scaleY(scale).setDuration(120).start();
+                    if (armed) {
+                        row.performHapticFeedback(
+                                HapticFeedbackConstants.GESTURE_THRESHOLD_ACTIVATE);
+                    }
+                }
+                break;
+            }
+            case MotionEvent.ACTION_UP: {
+                boolean launch = dy >= mPullThreshold;
+                if (!launch && mPullVelocityTracker != null && dy >= mPullThreshold / 2f) {
+                    mPullVelocityTracker.computeCurrentVelocity(1000);
+                    launch = mPullVelocityTracker.getYVelocity(mTrackingPointer)
+                            >= mPullFlingVelocity;
+                }
+                if (launch && mFreeformLauncher != null) {
+                    Log.i(TAG, "freeform pull launch key=" + row.getKey() + " dy=" + dy);
+                    row.animate().scaleX(1f).scaleY(1f).setDuration(120).start();
+                    mFreeformLauncher.launchInFreeform(row);
+                    resetFreeformPull();
+                    endMotion();
+                } else {
+                    cancelFreeformPull("released below threshold dy=" + dy);
+                }
+                break;
+            }
+            case MotionEvent.ACTION_CANCEL:
+                cancelFreeformPull("cancel");
+                break;
+        }
+    }
+
+    /** Puts the row back where it was and forgets the pull. */
+    private void cancelFreeformPull(String reason) {
+        final ExpandableNotificationRow row = mPullRow;
+        Log.d(TAG, "freeform pull cancelled: " + reason);
+        if (row != null) {
+            row.animate()
+                    .translationY(mPullStartTranslationY)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(200)
+                    .start();
+        }
+        resetFreeformPull();
+        endMotion();
+    }
+
+    private void resetFreeformPull() {
+        mPullingToFreeform = false;
+        mPullArmed = false;
+        mPullRow = null;
+        if (mPullVelocityTracker != null) {
+            mPullVelocityTracker.recycle();
+            mPullVelocityTracker = null;
+        }
+    }
+
+    /** Miku: opens a heads-up notification in a freeform window. */
+    public interface FreeformLauncher {
+        /** Whether a downward pull on this HUN row should open it in a freeform window. */
+        boolean canLaunchInFreeform(ExpandableNotificationRow row);
+
+        /** Opens the row's content intent in a freeform window and dismisses the HUN. */
+        void launchInFreeform(ExpandableNotificationRow row);
     }
 
     private void clearNotificationEffects() {
@@ -337,6 +558,9 @@ public class HeadsUpTouchHelper implements Gefingerpoken {
          * dispatching the rest of the gesture to scene container.
          */
         void startDraggingOnHun();
+
+        /** Miku: stop forwarding the current gesture to the scene framework. */
+        default void claimTouchFromSceneFramework(MotionEvent ev) {}
     }
 
     /** The controller for a view that houses heads up notifications. */

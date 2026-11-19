@@ -584,6 +584,17 @@ public class BubblesManager {
         mBubbles.expandStackAndSelectBubble(bubble);
     }
 
+    /** Miku: whether an app bubble can be opened right now. */
+    public boolean canExpandAppBubble() {
+        return mBubbles.canExpandAppBubble();
+    }
+
+    /** Miku: opens the activity behind {@code pendingIntent} in an app bubble. */
+    public void expandStackAndSelectBubble(android.app.PendingIntent pendingIntent,
+            UserHandle user) {
+        mBubbles.expandStackAndSelectBubble(pendingIntent, user);
+    }
+
     /**
      * @return a bubble that matches the provided shortcutId, if one exists.
      */

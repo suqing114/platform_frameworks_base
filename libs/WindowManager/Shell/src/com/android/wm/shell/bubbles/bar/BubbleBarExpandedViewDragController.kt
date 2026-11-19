@@ -18,6 +18,7 @@ package com.android.wm.shell.bubbles.bar
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Rect
 import android.view.MotionEvent
 import android.view.View
 import androidx.annotation.VisibleForTesting
@@ -99,6 +100,7 @@ class BubbleBarExpandedViewDragController(
     private inner class HandleDragListener : RelativeTouchListener() {
 
         private var isMoving = false
+        private var freeWindow = false
 
         override fun onDown(v: View, ev: MotionEvent): Boolean {
             // While animating, don't allow new touch events
@@ -112,10 +114,15 @@ class BubbleBarExpandedViewDragController(
                         BubbleBarLocation.RIGHT
                     }
                 )
-            dropTargetManager.onDragStarted(
-                draggedObject,
-                dragZoneFactory.createSortedDragZones(draggedObject),
-            )
+            // Miku: in free-window mode the view stays where it is dropped, so the left / right
+            // drop zones are not used.
+            freeWindow = BubblePositioner.isMikuFreeBubbleWindowEnabled()
+            if (!freeWindow) {
+                dropTargetManager.onDragStarted(
+                    draggedObject,
+                    dragZoneFactory.createSortedDragZones(draggedObject),
+                )
+            }
             isDragged = true
             // pass the down event to the magnetized object to make sure that positions on the
             // screen are updated in case they changed, e.g. after rotation
@@ -135,7 +142,9 @@ class BubbleBarExpandedViewDragController(
                 isMoving = true
                 animationHelper.animateStartDrag()
             }
-            dropTargetManager.onDragUpdated(ev.rawX.toInt(), ev.rawY.toInt())
+            if (!freeWindow) {
+                dropTargetManager.onDragUpdated(ev.rawX.toInt(), ev.rawY.toInt())
+            }
 
             // If we're dragging within the dismiss target, return immediately; the dragged object
             // is manipulated by the dismiss target
@@ -173,7 +182,17 @@ class BubbleBarExpandedViewDragController(
 
         private fun finishDrag() {
             if (!isStuckToDismiss) {
-                dropTargetManager.onDragEnded()
+                if (freeWindow) {
+                    // Miku: remember where the window was dropped; the rest animation then
+                    // settles it there instead of snapping back above the bubble bar.
+                    val left = expandedView.x.toInt()
+                    val top = expandedView.y.toInt()
+                    bubblePositioner.setMikuUserExpandedViewBounds(
+                        Rect(left, top, left + expandedView.width, top + expandedView.height)
+                    )
+                } else {
+                    dropTargetManager.onDragEnded()
+                }
                 dragListener.onReleased(inDismiss = false)
                 animationHelper.animateToRestPosition()
                 dismissView.hide()

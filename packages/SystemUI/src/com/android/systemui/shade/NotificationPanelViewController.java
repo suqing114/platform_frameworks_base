@@ -163,6 +163,7 @@ import com.android.systemui.statusbar.VibratorHelper;
 import com.android.systemui.statusbar.notification.AnimatableProperty;
 import com.android.systemui.statusbar.notification.ConversationNotificationManager;
 import com.android.systemui.statusbar.notification.DynamicPrivacyController;
+import com.android.systemui.statusbar.notification.NotificationActivityStarter;
 import com.android.systemui.statusbar.notification.NotificationWakeUpCoordinator;
 import com.android.systemui.statusbar.notification.PropertyAnimator;
 import com.android.systemui.statusbar.notification.ViewGroupFadeHelper;
@@ -394,6 +395,7 @@ public final class NotificationPanelViewController implements
      */
     private int mHeadsUpStartHeight;
     private HeadsUpTouchHelper mHeadsUpTouchHelper;
+    private final Lazy<NotificationActivityStarter> mNotificationActivityStarterLazy;
     private boolean mListenForHeadsUp;
     private int mNavigationBarBottomHeight;
     private boolean mExpandingFromHeadsUp;
@@ -663,7 +665,9 @@ public final class NotificationPanelViewController implements
             Lazy<ShadeDisplaysRepository> shadeDisplaysRepository,
             WindowRootViewBlurInteractor windowRootViewBlurInteractor,
             TunerService tunerService,
-            Context context) {
+            Context context,
+            Lazy<NotificationActivityStarter> notificationActivityStarterLazy) {
+        mNotificationActivityStarterLazy = notificationActivityStarterLazy;
         mBlurConfig = blurConfig;
         mWindowRootViewBlurInteractor = windowRootViewBlurInteractor;
         SceneContainerFlag.assertInLegacyMode();
@@ -2274,6 +2278,30 @@ public final class NotificationPanelViewController implements
                 mStatusBarService,
                 mNotificationStackScrollLayoutController.getHeadsUpCallback(),
                 new HeadsUpNotificationViewControllerImpl());
+        // Miku: pull a HUN down to open it in a freeform window.
+        mHeadsUpTouchHelper.setFreeformLauncher(new HeadsUpTouchHelper.FreeformLauncher() {
+            @Override
+            public boolean canLaunchInFreeform(ExpandableNotificationRow row) {
+                NotificationEntry entry = hunEntryFor(row);
+                return entry != null && mNotificationActivityStarterLazy.get()
+                        .canLaunchNotificationInFreeform(entry);
+            }
+
+            @Override
+            public void launchInFreeform(ExpandableNotificationRow row) {
+                NotificationEntry entry = hunEntryFor(row);
+                if (entry != null) {
+                    mNotificationActivityStarterLazy.get()
+                            .onNotificationPulledToFreeform(entry, row);
+                }
+            }
+
+            /** The pinned HUN being touched is the top heads-up entry. */
+            private NotificationEntry hunEntryFor(ExpandableNotificationRow row) {
+                NotificationEntry top = mHeadsUpManager.getTopEntry();
+                return top != null && top.getKey().equals(row.getKey()) ? top : null;
+            }
+        });
     }
 
     private void onClosingFinished() {
@@ -4070,6 +4098,10 @@ public final class NotificationPanelViewController implements
                 mMetricsLogger.count(COUNTER_PANEL_OPEN_PEEK, 1);
             }
             boolean handled = mHeadsUpTouchHelper.onTouchEvent(event);
+            if (mHeadsUpTouchHelper.wasLastEventConsumedByFreeformPull()) {
+                // Miku: the HUN is being pulled into a freeform window; don't move the shade.
+                return true;
+            }
 
             // This touch session has already resulted in shade expansion. Ignore everything else.
             if (event.getActionMasked() != MotionEvent.ACTION_DOWN

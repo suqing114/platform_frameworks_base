@@ -3517,6 +3517,38 @@ public class BubbleController implements ConfigurationChangeListener,
         }
     }
 
+    // Miku: open a notification's content intent in an app bubble.
+    private boolean mikuCanExpandAppBubble() {
+        if (!mFeatureConfig.areAppBubblesSupported()) return false;
+        return !com.android.wm.shell.shared.bubbles.BubbleFlagHelper.enableRootTaskForBubble()
+                || mBubbleHelper.getAppBubbleRootTaskToken() != null;
+    }
+
+    private void mikuExpandAppBubble(PendingIntent pendingIntent, UserHandle user) {
+        if (!mikuCanExpandAppBubble()) {
+            Log.w(TAG, "Miku: app bubbles unavailable, not opening " + pendingIntent);
+            return;
+        }
+        final String key = Bubble.getAppBubbleKeyForApp(
+                pendingIntent.getCreatorPackage(), user);
+        final Bubble existing = mBubbleData.getBubbleInStackWithKey(key);
+        expandStackAndSelectBubble(pendingIntent, user, /* entryPoint= */ null,
+                /* bubbleBarLocation= */ null);
+        if (existing != null && existing.getTaskId() != INVALID_TASK_ID) {
+            // The app already has a bubble: expanding only re-shows the old page, so also
+            // deliver the new intent (e.g. another chat) into the bubble's task.
+            final ActivityOptions opts = ActivityOptions.makeBasic();
+            opts.setLaunchTaskId(existing.getTaskId());
+            opts.setPendingIntentBackgroundActivityStartMode(
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS);
+            try {
+                pendingIntent.send(mContext, 0, null, null, null, null, opts.toBundle());
+            } catch (PendingIntent.CanceledException e) {
+                Log.w(TAG, "Miku: failed to deliver intent to bubble task", e);
+            }
+        }
+    }
+
     private class BubblesImpl implements Bubbles {
         // Up-to-date cached state of bubbles data for SysUI to query from the calling thread
         @VisibleForTesting
@@ -3665,6 +3697,17 @@ public class BubbleController implements ConfigurationChangeListener,
             mMainExecutor.execute(() -> {
                 BubbleController.this.expandStackAndSelectBubble(bubble);
             });
+        }
+
+        @Override
+        public boolean canExpandAppBubble() {
+            return mikuCanExpandAppBubble();
+        }
+
+        @Override
+        public void expandStackAndSelectBubble(PendingIntent pendingIntent,
+                UserHandle user) {
+            mMainExecutor.execute(() -> mikuExpandAppBubble(pendingIntent, user));
         }
 
         @Override
@@ -4008,7 +4051,8 @@ public class BubbleController implements ConfigurationChangeListener,
 
         @Override
         public void setTaskBounds(TaskViewTaskController taskView, Rect boundsOnScreen) {
-            if (mBubblePositioner.isPendingBubbleBarTopOnScreenUpdate()) {
+            if (mBubblePositioner.isPendingBubbleBarTopOnScreenUpdate()
+                    && mBubblePositioner.getMikuUserExpandedViewBounds() == null) {
                 BubbleLog.d(
                         "BubbleController.setTaskBounds skipped due to stale bubble bar position");
                 return;

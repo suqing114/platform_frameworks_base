@@ -562,6 +562,8 @@ public class BubbleBarAnimationHelper {
                 bbev.resetPivot();
                 bbev.setDragging(false);
                 updateExpandedView(bbev);
+                // Miku: the window may have been moved freely; tell WM where the task is.
+                bbev.mikuSyncTaskBounds();
             }
         });
         startNewAnimator(animatorSet);

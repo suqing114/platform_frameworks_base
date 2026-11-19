@@ -983,6 +983,10 @@ public class BubblePositioner implements BubbleDropTargetBoundsProvider {
      * How wide the expanded view should be when showing from the bubble bar.
      */
     public int getExpandedViewWidthForBubbleBar(boolean isOverflow) {
+        if (!isOverflow) {
+            Rect user = getMikuUserExpandedViewBounds();
+            if (user != null) return user.width();
+        }
         return isOverflow ? mOverflowWidth : mExpandedViewBubbleBarWidth;
     }
 
@@ -993,8 +997,61 @@ public class BubblePositioner implements BubbleDropTargetBoundsProvider {
         if (isOverflow) {
             return mOverflowHeight;
         } else {
+            Rect user = getMikuUserExpandedViewBounds();
+            if (user != null) return user.height();
             return getBubbleBarExpandedViewHeight();
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Miku: the user can move and resize the bubble bar expanded view like a small window.
+    // The chosen bounds are remembered per screen size (i.e. per orientation) until reboot.
+    // ---------------------------------------------------------------------------------------
+
+    /** Whether the bubble bar expanded view can be moved / resized freely. */
+    public static boolean isMikuFreeBubbleWindowEnabled() {
+        return android.os.SystemProperties.getBoolean("persist.wm.miku.bubble_free_window", true);
+    }
+
+    private final java.util.HashMap<String, Rect> mMikuUserBounds = new java.util.HashMap<>();
+
+    private String mikuScreenKey() {
+        return mScreenRect == null ? "" : mScreenRect.width() + "x" + mScreenRect.height();
+    }
+
+    /** Remembers the expanded view bounds the user dragged / resized to (screen coordinates). */
+    public void setMikuUserExpandedViewBounds(Rect bounds) {
+        if (!isMikuFreeBubbleWindowEnabled()) return;
+        mMikuUserBounds.put(mikuScreenKey(), new Rect(bounds));
+        BubbleLog.d("BubblePositioner.setMikuUserExpandedViewBounds() %s -> %s",
+                mikuScreenKey(), getMikuUserExpandedViewBounds());
+    }
+
+    /** Smallest size the user can resize the expanded view to. */
+    public int getMikuMinExpandedViewWidth() {
+        return Math.round(240 * mContext.getResources().getDisplayMetrics().density);
+    }
+
+    /** Smallest size the user can resize the expanded view to. */
+    public int getMikuMinExpandedViewHeight() {
+        return Math.round(320 * mContext.getResources().getDisplayMetrics().density);
+    }
+
+    /** The user's bounds for the current screen size, clamped on screen; null if none. */
+    @androidx.annotation.Nullable
+    public Rect getMikuUserExpandedViewBounds() {
+        if (!isMikuFreeBubbleWindowEnabled()) return null;
+        Rect saved = mMikuUserBounds.get(mikuScreenKey());
+        if (saved == null) return null;
+        Rect avail = new Rect(getAvailableRect());
+        if (avail.isEmpty()) return null;
+        int w = Math.max(getMikuMinExpandedViewWidth(), Math.min(saved.width(), avail.width()));
+        int h = Math.max(getMikuMinExpandedViewHeight(), Math.min(saved.height(), avail.height()));
+        w = Math.min(w, avail.width());
+        h = Math.min(h, avail.height());
+        int left = Math.max(avail.left, Math.min(saved.left, avail.right - w));
+        int top = Math.max(avail.top, Math.min(saved.top, avail.bottom - h));
+        return new Rect(left, top, left + w, top + h);
     }
 
     /**
@@ -1048,6 +1105,13 @@ public class BubblePositioner implements BubbleDropTargetBoundsProvider {
      */
     public void getBubbleBarExpandedViewBounds(boolean onLeft, boolean isOverflowExpanded,
             Rect out) {
+        if (!isOverflowExpanded) {
+            Rect user = getMikuUserExpandedViewBounds();
+            if (user != null) {
+                out.set(user);
+                return;
+            }
+        }
         final int padding = getBubbleBarExpandedViewPadding();
         final int width = getExpandedViewWidthForBubbleBar(isOverflowExpanded);
         final int height = getExpandedViewHeightForBubbleBar(isOverflowExpanded);

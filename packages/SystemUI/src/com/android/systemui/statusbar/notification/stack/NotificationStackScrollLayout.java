@@ -7460,6 +7460,12 @@ public class NotificationStackScrollLayout
             if (SceneContainerFlag.isUnexpectedlyInLegacyMode()) return;
             setIsBeingDragged(true);
         }
+
+        @Override
+        public void claimTouchFromSceneFramework(MotionEvent ev) {
+            if (!SceneContainerFlag.isEnabled()) return;
+            NotificationStackScrollLayout.this.claimTouchFromSceneFramework(ev);
+        }
     };
 
     public HeadsUpTouchHelper.Callback getHeadsUpCallback() {
