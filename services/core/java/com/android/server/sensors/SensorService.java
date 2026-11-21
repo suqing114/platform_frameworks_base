@@ -66,6 +66,10 @@ public class SensorService extends SystemService {
     private static native boolean sendRuntimeSensorAdditionalInfoNative(long ptr, int handle,
             int type, int serial, long timestampNanos, float[] values);
 
+    // MikuUI shake guard, see MikuShakeGuard.
+    private static native void startMikuShakeGuardNative(long ptr, int uid, long durationMs);
+    private static native void clearMikuShakeGuardNative(long ptr);
+
 
     public SensorService(Context ctx) {
         super(ctx);
@@ -95,6 +99,26 @@ public class SensorService extends SystemService {
             synchronized (mLock) {
                 mSensorServiceStart = null;
             }
+        } else if (phase == SystemService.PHASE_THIRD_PARTY_APPS_CAN_START) {
+            new MikuShakeGuard(getContext(), new MikuShakeGuard.NativeCallback() {
+                @Override
+                public void start(int uid, long durationMs) {
+                    synchronized (mLock) {
+                        if (mPtr != 0) {
+                            startMikuShakeGuardNative(mPtr, uid, durationMs);
+                        }
+                    }
+                }
+
+                @Override
+                public void clear() {
+                    synchronized (mLock) {
+                        if (mPtr != 0) {
+                            clearMikuShakeGuardNative(mPtr);
+                        }
+                    }
+                }
+            }).start();
         }
     }
 

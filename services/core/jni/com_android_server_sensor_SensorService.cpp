@@ -63,6 +63,18 @@ public:
     jboolean sendRuntimeSensorAdditionalInfo(JNIEnv* env, jint handle, jint type, jint serial,
                                              jlong timestamp, jfloatArray values);
 
+    // MikuUI shake guard.
+    void startMikuShakeGuard(jint uid, jlong durationMs) {
+        if (mService != nullptr) {
+            mService->startMikuShakeGuard(static_cast<uid_t>(uid), ms2ns(durationMs));
+        }
+    }
+    void clearMikuShakeGuard() {
+        if (mService != nullptr) {
+            mService->clearMikuShakeGuard();
+        }
+    }
+
 private:
     sp<SensorService> mService;
 
@@ -379,7 +391,21 @@ static jboolean sendRuntimeSensorAdditionalInfoNative(JNIEnv* env, jclass, jlong
     return service->sendRuntimeSensorAdditionalInfo(env, handle, type, serial, timestamp, values);
 }
 
+// MikuUI shake guard.
+static void startMikuShakeGuardNative(JNIEnv* env, jclass, jlong ptr, jint uid, jlong durationMs) {
+    auto* service = reinterpret_cast<NativeSensorService*>(ptr);
+    service->startMikuShakeGuard(uid, durationMs);
+}
+
+static void clearMikuShakeGuardNative(JNIEnv* env, jclass, jlong ptr) {
+    auto* service = reinterpret_cast<NativeSensorService*>(ptr);
+    service->clearMikuShakeGuard();
+}
+
 static const JNINativeMethod methods[] = {
+        {"startMikuShakeGuardNative", "(JIJ)V",
+         reinterpret_cast<void*>(startMikuShakeGuardNative)},
+        {"clearMikuShakeGuardNative", "(J)V", reinterpret_cast<void*>(clearMikuShakeGuardNative)},
         {"startSensorServiceNative", "(L" PROXIMITY_ACTIVE_CLASS ";)J",
          reinterpret_cast<void*>(startSensorServiceNative)},
         {"registerProximityActiveListenerNative", "(J)V",

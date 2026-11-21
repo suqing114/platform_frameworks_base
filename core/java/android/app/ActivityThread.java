@@ -7977,6 +7977,22 @@ public final class ActivityThread extends ClientTransactionHandler
      * androidx.window.extensions shared library, which is only on the class path of apps that
      * declare it, hence the reflective call; other apps are skipped silently.
      */
+    /**
+     * MikuUI: taps the "skip" button of splash ads in eligible apps. See
+     * {@link com.android.internal.miku.MikuAutoSkip}; it reads its settings each time the app
+     * comes to the foreground, so it is installed regardless of them.
+     */
+    private void maybeInstallMikuAutoSkip(Application app) {
+        if (app == null || Process.isIsolated()) {
+            return;
+        }
+        try {
+            com.android.internal.miku.MikuAutoSkip.maybeInstall(app, app.getApplicationInfo());
+        } catch (Throwable t) {
+            Slog.w(TAG, "MikuAutoSkip: install failed", t);
+        }
+    }
+
     private void maybeInstallMikuParallelView(Application app, AppBindData data) {
         if (app == null || Process.isIsolated()
                 || !com.android.internal.miku.ParallelViewConfig.isCandidate(data.appInfo)) {
@@ -8372,6 +8388,7 @@ public final class ActivityThread extends ClientTransactionHandler
                 }
             }
             maybeInstallMikuParallelView(app, data);
+            maybeInstallMikuAutoSkip(app);
         } finally {
             // If the app targets < O-MR1, or doesn't change the thread policy
             // during startup, clobber the policy to maintain behavior of b/36951662
